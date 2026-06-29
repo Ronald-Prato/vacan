@@ -3,6 +3,11 @@ export const CANVAS_SIZE = {
   height: 4096,
 } as const
 
+export type DocumentSize = {
+  width: number
+  height: number
+}
+
 export const DEFAULT_SHAPE_SIZE = {
   width: 720,
   height: 560,
@@ -81,6 +86,7 @@ export type Page = {
 
 export type EditorDocument = {
   name: string
+  size: DocumentSize
   pages: Page[]
 }
 
@@ -89,7 +95,7 @@ export type Selection = {
   elementId: string
 } | null
 
-type IdFactory = () => string
+export type IdFactory = () => string
 
 const fallbackIdFactory: IdFactory = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -111,6 +117,7 @@ export function createPage(pageNumber: number, createId: IdFactory = fallbackIdF
 export function createInitialDocument(createId: IdFactory = fallbackIdFactory): EditorDocument {
   return {
     name: "Post de lanzamiento",
+    size: CANVAS_SIZE,
     pages: [createPage(1, createId)],
   }
 }
@@ -119,13 +126,15 @@ export function createImageElement({
   asset,
   imageSize,
   createId = fallbackIdFactory,
+  canvasSize = CANVAS_SIZE,
 }: {
   asset: Asset
   imageSize: { width: number; height: number }
   createId?: IdFactory
+  canvasSize?: DocumentSize
 }): ImageElement {
-  const maxWidth = CANVAS_SIZE.width * 0.68
-  const maxHeight = CANVAS_SIZE.height * 0.68
+  const maxWidth = canvasSize.width * 0.68
+  const maxHeight = canvasSize.height * 0.68
   const scale = Math.min(maxWidth / imageSize.width, maxHeight / imageSize.height, 1)
   const width = Math.round(imageSize.width * scale)
   const height = Math.round(imageSize.height * scale)
@@ -136,8 +145,8 @@ export function createImageElement({
     assetId: asset.id,
     name: asset.name,
     src: asset.src,
-    x: Math.round((CANVAS_SIZE.width - width) / 2),
-    y: Math.round((CANVAS_SIZE.height - height) / 2),
+    x: Math.round((canvasSize.width - width) / 2),
+    y: Math.round((canvasSize.height - height) / 2),
     width,
     height,
     rotation: 0,
@@ -145,16 +154,22 @@ export function createImageElement({
   }
 }
 
-export function createTextElement(createId: IdFactory = fallbackIdFactory): TextElement {
+export function createTextElement(
+  createId: IdFactory = fallbackIdFactory,
+  canvasSize: DocumentSize = CANVAS_SIZE,
+): TextElement {
+  const width = Math.min(DEFAULT_TEXT_SIZE.width, canvasSize.width * 0.82)
+  const height = Math.min(DEFAULT_TEXT_SIZE.height, canvasSize.height * 0.24)
+
   return {
     id: createId(),
     type: "text",
     name: "Texto",
     text: "Doble click para editar",
-    x: Math.round((CANVAS_SIZE.width - DEFAULT_TEXT_SIZE.width) / 2),
-    y: Math.round((CANVAS_SIZE.height - DEFAULT_TEXT_SIZE.height) / 2),
-    width: DEFAULT_TEXT_SIZE.width,
-    height: DEFAULT_TEXT_SIZE.height,
+    x: Math.round((canvasSize.width - width) / 2),
+    y: Math.round((canvasSize.height - height) / 2),
+    width,
+    height,
     rotation: 0,
     opacity: 1,
     fontFamily: "Geist Variable",
@@ -166,22 +181,26 @@ export function createTextElement(createId: IdFactory = fallbackIdFactory): Text
 export function createShapeElement(
   shapeType: ShapeType,
   createId: IdFactory = fallbackIdFactory,
-  position: { x: number; y: number } = {
-    x: Math.round((CANVAS_SIZE.width - DEFAULT_SHAPE_SIZE.width) / 2),
-    y: Math.round((CANVAS_SIZE.height - DEFAULT_SHAPE_SIZE.height) / 2),
-  },
+  position?: { x: number; y: number },
+  canvasSize: DocumentSize = CANVAS_SIZE,
 ): ShapeElement {
   const preset = SHAPE_OPTIONS.find((shape) => shape.type === shapeType) ?? SHAPE_OPTIONS[0]
+  const width = Math.min(DEFAULT_SHAPE_SIZE.width, canvasSize.width * 0.44)
+  const height = Math.min(DEFAULT_SHAPE_SIZE.height, canvasSize.height * 0.34)
+  const resolvedPosition = position ?? {
+    x: Math.round((canvasSize.width - width) / 2),
+    y: Math.round((canvasSize.height - height) / 2),
+  }
 
   return {
     id: createId(),
     type: "shape",
     shapeType,
     name: preset.label,
-    x: position.x,
-    y: position.y,
-    width: DEFAULT_SHAPE_SIZE.width,
-    height: DEFAULT_SHAPE_SIZE.height,
+    x: resolvedPosition.x,
+    y: resolvedPosition.y,
+    width,
+    height,
     rotation: 0,
     opacity: 1,
     fill: preset.fill,

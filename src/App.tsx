@@ -80,6 +80,15 @@ import {
   type SavedProject,
 } from "@/editor/projects"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
+import {
+  DESIGN_FORMATS,
+  DESIGN_TEMPLATES,
+  createBlankDocumentForFormat,
+  createDocumentFromTemplate,
+  resizeDocumentToFormat,
+  type DesignFormatId,
+  type DesignTemplateId,
+} from "@/editor/templates"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -463,13 +472,15 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const stageRefs = useRef<StageMap>({})
   const altDuplicatedDragRef = useRef<string | null>(null)
   const lastSavedFingerprintRef = useRef(createDocumentFingerprint(document))
-  const [canvasPreviewSize, setCanvasPreviewSize] = useState(MAX_CANVAS_PREVIEW_SIZE)
+  const [canvasPreviewScale, setCanvasPreviewScale] = useState(MAX_CANVAS_PREVIEW_SIZE / CANVAS_SIZE.width)
 
   const resolvedActivePageId = selection?.pageId ?? activePageId ?? document.pages[0]?.id
   const activePage = document.pages.find((page) => page.id === resolvedActivePageId) ?? document.pages[0]
   const selectedElement = useMemo(() => findElement(document, selection), [document, selection])
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
-  const canvasScale = canvasPreviewSize / CANVAS_SIZE.width
+  const documentSize = document.size ?? CANVAS_SIZE
+  const canvasPreviewWidth = Math.round(documentSize.width * canvasPreviewScale)
+  const canvasPreviewHeight = Math.round(documentSize.height * canvasPreviewScale)
 
   useEffect(() => {
     if (!document.pages.some((page) => page.id === activePageId)) {
@@ -493,8 +504,15 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     const resizePreview = () => {
       const availableWidth = Math.max(1, viewport.clientWidth - 32)
       const availableHeight = Math.max(1, viewport.clientHeight - 64)
+      const maxPreviewScale = MAX_CANVAS_PREVIEW_SIZE / Math.max(documentSize.width, documentSize.height)
 
-      setCanvasPreviewSize(Math.min(availableWidth, availableHeight, MAX_CANVAS_PREVIEW_SIZE))
+      setCanvasPreviewScale(
+        Math.min(
+          availableWidth / documentSize.width,
+          availableHeight / documentSize.height,
+          maxPreviewScale,
+        ),
+      )
     }
 
     resizePreview()
@@ -503,7 +521,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     observer.observe(viewport)
 
     return () => observer.disconnect()
-  }, [])
+  }, [documentSize.height, documentSize.width])
 
   useEffect(() => {
     if (!animatingPageId) {
@@ -641,7 +659,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
       return
     }
 
-    const element = createImageElement({ asset, imageSize, createId })
+    const element = createImageElement({ asset, imageSize, createId, canvasSize: documentSize })
     setDocument((currentDocument) => addElementToPage(currentDocument, pageId, element))
     setActivePageId(pageId)
     setSelection({ pageId, elementId: element.id })
@@ -683,7 +701,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
       return
     }
 
-    const element = createTextElement(createId)
+    const element = createTextElement(createId, documentSize)
     setDocument((currentDocument) => addElementToPage(currentDocument, resolvedActivePageId, element))
     setActivePageId(resolvedActivePageId)
     setSelection({ pageId: resolvedActivePageId, elementId: element.id })
@@ -693,15 +711,15 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     shapeType: ShapeType,
     pageId = resolvedActivePageId,
     position = {
-      x: Math.round((CANVAS_SIZE.width - DEFAULT_SHAPE_SIZE.width) / 2),
-      y: Math.round((CANVAS_SIZE.height - DEFAULT_SHAPE_SIZE.height) / 2),
+      x: Math.round((documentSize.width - DEFAULT_SHAPE_SIZE.width) / 2),
+      y: Math.round((documentSize.height - DEFAULT_SHAPE_SIZE.height) / 2),
     },
   ) => {
     if (!pageId) {
       return
     }
 
-    const element = createShapeElement(shapeType, createId, position)
+    const element = createShapeElement(shapeType, createId, position, documentSize)
     setDocument((currentDocument) => addElementToPage(currentDocument, pageId, element))
     setActivePageId(pageId)
     setSelection({ pageId, elementId: element.id })
@@ -726,14 +744,14 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     const shapeWidth = DEFAULT_SHAPE_SIZE.width
     const shapeHeight = DEFAULT_SHAPE_SIZE.height
     const x = clamp(
-      (event.clientX - canvasRect.left) / canvasScale - shapeWidth / 2,
+      (event.clientX - canvasRect.left) / canvasPreviewScale - shapeWidth / 2,
       0,
-      CANVAS_SIZE.width - shapeWidth,
+      documentSize.width - shapeWidth,
     )
     const y = clamp(
-      (event.clientY - canvasRect.top) / canvasScale - shapeHeight / 2,
+      (event.clientY - canvasRect.top) / canvasPreviewScale - shapeHeight / 2,
       0,
-      CANVAS_SIZE.height - shapeHeight,
+      documentSize.height - shapeHeight,
     )
 
     addShape(shapeType, pageId, { x, y })
@@ -821,7 +839,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     }
 
     const dataUrl = stageRefs.current[resolvedActivePageId]?.toDataURL({
-      pixelRatio: CANVAS_SIZE.width / canvasPreviewSize,
+      pixelRatio: 1 / canvasPreviewScale,
     })
 
     if (!dataUrl) {
@@ -875,6 +893,32 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
           : autosaveStatus === "error"
             ? "Sin guardar"
             : "Guardado"
+
+  const applyTemplate = (templateId: DesignTemplateId) => {
+    const nextDocument = createDocumentFromTemplate(templateId, createId)
+
+    setDocument(nextDocument)
+    setCurrentProjectId(null)
+    setActivePageId(nextDocument.pages[0]?.id ?? null)
+    setSelection(null)
+    setAutosaveError("")
+  }
+
+  const createBlankFormat = (formatId: DesignFormatId) => {
+    const nextDocument = createBlankDocumentForFormat(formatId, createId)
+
+    setDocument(nextDocument)
+    setCurrentProjectId(null)
+    setActivePageId(nextDocument.pages[0]?.id ?? null)
+    setSelection(null)
+    lastSavedFingerprintRef.current = createDocumentFingerprint(nextDocument)
+    setAutosaveError("")
+    setAutosaveStatus(persistence.isEnabled ? "saved" : "local")
+  }
+
+  const resizeCurrentDocument = (formatId: DesignFormatId) => {
+    setDocument((currentDocument) => resizeDocumentToFormat(currentDocument, formatId))
+  }
 
   const renderToolPanel = () => {
     if (activeTool === "elements") {
@@ -1072,18 +1116,56 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     return (
       <>
         <PanelSearch placeholder="Busca plantillas" />
-        <div className="grid gap-3">
-          {["Post promocional", "Historia dinamica", "Anuncio express"].map((template, index) => (
-            <button
-              key={template}
-              type="button"
-              className="overflow-hidden rounded-md border border-white/10 bg-[#20222b] text-left transition hover:border-[#8b5cf6]"
-            >
-              <span className={`block h-24 ${index === 0 ? "bg-gradient-to-br from-[#00c4cc] to-[#7c3aed]" : index === 1 ? "bg-gradient-to-br from-[#14b8a6] to-[#22c55e]" : "bg-gradient-to-br from-[#f59e0b] to-[#ec4899]"}`} />
-              <span className="block px-3 py-2 text-sm font-semibold text-white">{template}</span>
-            </button>
-          ))}
-        </div>
+        <section className="space-y-2">
+          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Tamanos</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {DESIGN_FORMATS.map((format) => (
+              <button
+                key={format.id}
+                type="button"
+                className="rounded-md border border-white/10 bg-[#20222b] px-3 py-3 text-left transition hover:border-[#00c4cc]"
+                onClick={() => createBlankFormat(format.id)}
+              >
+                <span className="block text-sm font-semibold text-white">{format.name}</span>
+                <span className="text-xs text-slate-400">
+                  {format.size.width} x {format.size.height}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="space-y-2">
+          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Redimensionar</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {DESIGN_FORMATS.map((format) => (
+              <button
+                key={format.id}
+                type="button"
+                className="rounded-md border border-white/10 bg-[#171922] px-3 py-2 text-left text-xs font-semibold text-slate-300 transition hover:border-[#8b5cf6]"
+                onClick={() => resizeCurrentDocument(format.id)}
+              >
+                {format.name}
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Plantillas</h3>
+          <div className="grid gap-3">
+            {DESIGN_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="overflow-hidden rounded-md border border-white/10 bg-[#20222b] text-left transition hover:border-[#8b5cf6]"
+                onClick={() => applyTemplate(template.id)}
+              >
+                <span className={`block h-24 bg-gradient-to-br ${template.accent}`} />
+                <span className="block px-3 pt-2 text-sm font-semibold text-white">{template.name}</span>
+                <span className="block px-3 pb-3 pt-1 text-xs text-slate-400">{template.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
       </>
     )
   }
@@ -1119,7 +1201,11 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
           >
             Guardar
           </Button>
-          <Button variant="ghost" className="hidden text-white hover:bg-white/15 sm:inline-flex">
+          <Button
+            variant="ghost"
+            className="hidden text-white hover:bg-white/15 sm:inline-flex"
+            onClick={() => setActiveTool("templates")}
+          >
             Redimensionar
           </Button>
           <Button variant="ghost" className="hidden text-white hover:bg-white/15 md:inline-flex">
@@ -1208,7 +1294,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         <section className="flex min-w-0 flex-col bg-[#0d0e14]">
           <div className="flex h-12 items-center justify-between border-b border-white/8 bg-[#0f1017] px-4">
             <div className="flex items-center gap-3 text-xs font-semibold text-slate-400">
-              <span>{CANVAS_SIZE.width} x {CANVAS_SIZE.height}px</span>
+              <span>{documentSize.width} x {documentSize.height}px</span>
               <span>{document.pages.length} paginas</span>
               <span>{totalElements} elementos</span>
             </div>
@@ -1229,7 +1315,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
             <div className="flex w-full max-w-[1120px] flex-col items-center gap-10">
               {document.pages.map((page, pageIndex) => (
                 <section key={page.id} className={`w-full ${page.id === animatingPageId ? "vacan-page-enter" : ""}`}>
-                  <div className="mx-auto mb-3 flex items-center justify-between text-slate-300" style={{ width: canvasPreviewSize }}>
+                  <div className="mx-auto mb-3 flex items-center justify-between text-slate-300" style={{ width: canvasPreviewWidth }}>
                     <div className="flex items-center gap-2">
                       <Badge className={page.id === resolvedActivePageId ? "bg-white text-slate-950" : "bg-white/10 text-slate-300"}>
                         {pageIndex + 1}
@@ -1263,10 +1349,10 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                       ref={(stage) => {
                         stageRefs.current[page.id] = stage
                       }}
-                      width={canvasPreviewSize}
-                      height={canvasPreviewSize}
-                      scaleX={canvasScale}
-                      scaleY={canvasScale}
+                      width={canvasPreviewWidth}
+                      height={canvasPreviewHeight}
+                      scaleX={canvasPreviewScale}
+                      scaleY={canvasPreviewScale}
                       onMouseDown={(event) => {
                         if (event.target === event.target.getStage()) {
                           setActivePageId(page.id)
@@ -1281,13 +1367,13 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                       }}
                     >
                       <KonvaLayer>
-                        <Rect width={CANVAS_SIZE.width} height={CANVAS_SIZE.height} fill={page.background} />
+                        <Rect width={documentSize.width} height={documentSize.height} fill={page.background} />
                         {page.elements.length === 0 ? (
                           <Text
                             text="Sube una imagen, agrega texto o inserta una forma"
                             x={0}
-                            y={CANVAS_SIZE.height / 2 - 42}
-                            width={CANVAS_SIZE.width}
+                            y={documentSize.height / 2 - 42}
+                            width={documentSize.width}
                             align="center"
                             fill="#64748b"
                             fontSize={84}
@@ -1313,7 +1399,8 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                                 element,
                                 position,
                                 elements: page.elements,
-                                threshold: SNAP_THRESHOLD_SCREEN_PX / canvasScale,
+                                canvasSize: documentSize,
+                                threshold: SNAP_THRESHOLD_SCREEN_PX / canvasPreviewScale,
                               })
 
                               setSnapPreview(
@@ -1341,8 +1428,8 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                                 key={`${guide.axis}:${guide.position}`}
                                 points={
                                   guide.axis === "vertical"
-                                    ? [guide.position, 0, guide.position, CANVAS_SIZE.height]
-                                    : [0, guide.position, CANVAS_SIZE.width, guide.position]
+                                    ? [guide.position, 0, guide.position, documentSize.height]
+                                    : [0, guide.position, documentSize.width, guide.position]
                                 }
                                 stroke="#00c4cc"
                                 strokeWidth={2}
@@ -1355,7 +1442,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                       </KonvaLayer>
                     </Stage>
                   </div>
-                  <div className="mx-auto mt-5 flex h-12 overflow-hidden rounded-md border border-white/35 bg-transparent text-slate-200" style={{ width: canvasPreviewSize }}>
+                  <div className="mx-auto mt-5 flex h-12 overflow-hidden rounded-md border border-white/35 bg-transparent text-slate-200" style={{ width: canvasPreviewWidth }}>
                     <button
                       type="button"
                       className="flex flex-1 items-center justify-center gap-2 text-sm font-bold transition hover:bg-white/10"

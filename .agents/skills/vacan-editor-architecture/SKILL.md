@@ -35,6 +35,8 @@ surface grows.
 - `src/editor/projects.ts`: project persistence helpers, summaries, validation,
   autosave fingerprints, and save payload shaping.
 - `src/editor/snapping.ts`: guides, alignment, and drag math.
+- `src/editor/templates.ts`: design formats, template definitions, document
+  creation from templates, and resize math.
 - `src/App.tsx`: UI composition and injected adapters. Avoid adding business
   logic here if it can be tested in `src/editor`.
 - `convex/*.ts`: backend storage and query/mutation/action boundaries.
