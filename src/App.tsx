@@ -168,6 +168,7 @@ import { createWorkspaceStats, listRecentProjects } from "@/editor/dashboard"
 import {
   SHARE_ACCESS_OPTIONS,
   createProjectShareDraft,
+  getShareTokenFromPath,
   summarizeProjectShareRecord,
   type ProjectShareRecord,
   type SavedProjectShare,
@@ -784,6 +785,129 @@ function ToolAction({
       <Icon className="size-5" />
       {label}
     </button>
+  )
+}
+
+type SharedProjectLookup = {
+  share: ProjectShareRecord
+  project: ProjectRecord
+} | null
+
+function StaticCanvasElement({ element }: { element: CanvasElement }) {
+  if ((element.visible ?? true) === false) {
+    return null
+  }
+
+  const textElement = element.type === "text" ? normalizeTextElement(element) : null
+
+  return (
+    <KonvaGroup
+      x={element.x}
+      y={element.y}
+      width={element.width}
+      height={element.height}
+      rotation={element.rotation}
+    >
+      {element.type === "image" ? <EditableImage element={element} /> : null}
+      {element.type === "shape" ? <EditableShape element={element} /> : null}
+      {textElement ? (
+        <Text
+          text={textElement.text}
+          width={textElement.width}
+          height={textElement.height}
+          fill={textElement.fill}
+          fontFamily={textElement.fontFamily}
+          fontSize={textElement.fontSize}
+          fontStyle={`${textElement.fontWeight}${textElement.fontStyle === "italic" ? " italic" : ""}`}
+          textDecoration={textElement.textDecoration}
+          align={textElement.align}
+          lineHeight={textElement.lineHeight}
+          letterSpacing={textElement.letterSpacing}
+          verticalAlign="middle"
+          opacity={textElement.opacity}
+        />
+      ) : null}
+    </KonvaGroup>
+  )
+}
+
+function SharedProjectPreview({
+  document,
+  projectName,
+  access,
+}: {
+  document: EditorDocument
+  projectName: string
+  access: ShareAccess
+}) {
+  const documentSize = document.size ?? CANVAS_SIZE
+  const previewScale = Math.min(760 / Math.max(documentSize.width, documentSize.height), 1)
+  const previewWidth = Math.round(documentSize.width * previewScale)
+  const previewHeight = Math.round(documentSize.height * previewScale)
+  const accessLabel = SHARE_ACCESS_OPTIONS.find((option) => option.value === access)?.label ?? "Puede ver"
+
+  return (
+    <main className="min-h-screen bg-[#0d0e14] text-slate-100">
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-white/10 bg-[#171922] px-4">
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-bold text-white">{projectName}</h1>
+          <p className="text-xs text-slate-400">{accessLabel}</p>
+        </div>
+        <Badge className="bg-[#00c4cc]/15 text-cyan-100">Compartido</Badge>
+      </header>
+      <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-10 px-4 py-8">
+        {document.pages.map((page, pageIndex) => (
+          <section key={page.id} className="w-full">
+            <div className="mx-auto mb-3 flex items-center gap-2 text-slate-300" style={{ width: previewWidth }}>
+              <Badge className="bg-white text-slate-950">{pageIndex + 1}</Badge>
+              <h2 className="text-sm font-bold">{page.name}</h2>
+            </div>
+            <div className="mx-auto w-fit bg-white shadow-[0_20px_60px_rgba(0,0,0,0.36)] ring-1 ring-black/40">
+              <Stage width={previewWidth} height={previewHeight} scaleX={previewScale} scaleY={previewScale}>
+                <KonvaLayer>
+                  <Rect width={documentSize.width} height={documentSize.height} fill={page.background} />
+                  {page.elements.map((element) => (
+                    <StaticCanvasElement key={element.id} element={element} />
+                  ))}
+                </KonvaLayer>
+              </Stage>
+            </div>
+          </section>
+        ))}
+      </div>
+    </main>
+  )
+}
+
+function SharedProjectRoute({ token }: { token: string }) {
+  const result = useQuery(api.projectShares.getByToken, { token }) as SharedProjectLookup | undefined
+
+  if (result === undefined) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#0d0e14] p-6 text-slate-100">
+        <div className="rounded-md border border-white/10 bg-[#171922] p-5 text-sm text-slate-300">
+          Cargando proyecto compartido...
+        </div>
+      </main>
+    )
+  }
+
+  if (!result || !isEditorDocument(result.project.canvas)) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#0d0e14] p-6 text-slate-100">
+        <div className="rounded-md border border-white/10 bg-[#171922] p-5 text-sm text-slate-300">
+          Link no disponible.
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <SharedProjectPreview
+      document={result.project.canvas}
+      projectName={result.project.name}
+      access={result.share.access}
+    />
   )
 }
 
@@ -3967,6 +4091,22 @@ function ConvexBackedApp() {
 }
 
 function App() {
+  const shareToken = typeof window === "undefined" ? null : getShareTokenFromPath(window.location.pathname)
+
+  if (shareToken) {
+    if (!import.meta.env.VITE_CONVEX_URL) {
+      return (
+        <main className="grid min-h-screen place-items-center bg-[#0d0e14] p-6 text-slate-100">
+          <div className="rounded-md border border-white/10 bg-[#171922] p-5 text-sm text-slate-300">
+            Convex no esta conectado.
+          </div>
+        </main>
+      )
+    }
+
+    return <SharedProjectRoute token={shareToken} />
+  }
+
   if (import.meta.env.VITE_CONVEX_URL) {
     return <ConvexBackedApp />
   }

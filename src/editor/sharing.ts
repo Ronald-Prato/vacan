@@ -50,6 +50,12 @@ export function createShareUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, "")}/share/${token}`
 }
 
+export function getShareTokenFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/share\/([^/?#]+)/)
+
+  return match ? decodeURIComponent(match[1]) : null
+}
+
 export function createProjectShareDraft({
   projectId,
   access,

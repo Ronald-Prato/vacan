@@ -4,6 +4,7 @@ import {
   createProjectShareDraft,
   createShareToken,
   createShareUrl,
+  getShareTokenFromPath,
   isShareAccess,
   summarizeProjectShareRecord,
 } from "./sharing"
@@ -23,6 +24,12 @@ describe("project sharing helpers", () => {
 
   it("builds stable share URLs without double slashes", () => {
     expect(createShareUrl("https://vacan.app/", "abc123")).toBe("https://vacan.app/share/abc123")
+  })
+
+  it("extracts share tokens from app paths", () => {
+    expect(getShareTokenFromPath("/share/abc123")).toBe("abc123")
+    expect(getShareTokenFromPath("/share/token%201")).toBe("token 1")
+    expect(getShareTokenFromPath("/projects")).toBeNull()
   })
 
   it("creates share drafts with normalized access and token", () => {

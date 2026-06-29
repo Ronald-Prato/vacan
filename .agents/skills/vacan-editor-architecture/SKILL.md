@@ -54,7 +54,8 @@ surface grows.
 - `src/editor/comments.ts`: comment draft/target/summary helpers. Keep
   collaborative metadata out of project canvas documents.
 - `src/editor/sharing.ts`: project share permissions, token drafts, URLs, and
-  share summaries. Keep access-link metadata out of project canvas documents.
+  share route parsing plus summaries. Keep access-link metadata out of project
+  canvas documents.
 - `src/editor/presence.ts`: collaborator presence identity, heartbeat drafts,
   active TTL filtering, and display summaries. Keep operational presence state
   out of project canvas documents.
@@ -117,6 +118,6 @@ surface grows.
 - Comment helpers: draft normalization, target descriptions, and record
   summaries.
 - Sharing helpers: access validation, token creation, URL creation, active state,
-  and record summaries.
+  route-token parsing, and record summaries.
 - Presence helpers: client id creation, color normalization, heartbeat draft
   normalization, active TTL filtering, and self/remote collaborator labels.
