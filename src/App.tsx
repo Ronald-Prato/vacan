@@ -131,7 +131,7 @@ type DocumentUpdater = EditorDocument | ((currentDocument: EditorDocument) => Ed
 
 const colorSwatches = ["#111827", "#ffffff", "#ef4444", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6"]
 const backgroundSwatches = ["#ffffff", "#f8fafc", "#fef3c7", "#d9f99d", "#ccfbf1", "#dbeafe", "#ede9fe", "#111827"]
-const SHOW_INSPECTOR = false
+const SHOW_INSPECTOR = true
 const SHAPE_DRAG_MIME = "application/x-vacan-shape"
 const MAX_CANVAS_PREVIEW_SIZE = 720
 const SNAP_THRESHOLD_SCREEN_PX = 8
@@ -1458,7 +1458,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         </div>
       </header>
 
-      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-[76px_minmax(0,1fr)] lg:grid-cols-[76px_320px_minmax(0,1fr)]">
+      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-[76px_minmax(0,1fr)] lg:grid-cols-[76px_320px_minmax(0,1fr)] xl:grid-cols-[76px_320px_minmax(0,1fr)_320px]">
         <aside className="relative z-20 border-r border-white/8 bg-[#0b0c11] py-3">
           <nav className="flex flex-col items-center gap-1">
             {sidebarTools.map((tool) => {
@@ -1715,11 +1715,11 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         </section>
 
         {SHOW_INSPECTOR ? (
-        <aside className="border-l border-slate-200 bg-white p-4">
+        <aside className="hidden border-l border-white/8 bg-[#171922] p-4 text-slate-100 xl:block">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold">Inspector</h2>
-              <p className="text-xs text-slate-500">
+              <h2 className="text-sm font-bold text-white">Inspector</h2>
+              <p className="text-xs text-slate-400">
                 {selectedElement ? `${readableType(selectedElement)} seleccionado` : "Selecciona un elemento"}
               </p>
             </div>
@@ -1776,7 +1776,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                       onChange={(event) =>
                         updateSelected({ fontFamily: event.target.value as typeof selectedElement.fontFamily })
                       }
-                      className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"
+	                      className="h-8 w-full rounded-lg border border-white/10 bg-[#12141b] px-2 text-sm text-slate-100"
                     >
                       {FONT_OPTIONS.map((fontFamily) => (
                         <option key={fontFamily} value={fontFamily}>
@@ -1789,7 +1789,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label>Tamano</Label>
-                      <span className="text-xs text-slate-500">{selectedElement.fontSize}px</span>
+	                      <span className="text-xs text-slate-400">{selectedElement.fontSize}px</span>
                     </div>
                     <Slider
                       value={[selectedElement.fontSize]}
@@ -1847,7 +1847,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>Rotacion</Label>
-                  <span className="text-xs text-slate-500">{Math.round(selectedElement.rotation)} deg</span>
+	                  <span className="text-xs text-slate-400">{Math.round(selectedElement.rotation)} deg</span>
                 </div>
                 <Slider
                   value={[selectedElement.rotation]}
@@ -1861,7 +1861,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>Opacidad</Label>
-                  <span className="text-xs text-slate-500">{Math.round(selectedElement.opacity * 100)}%</span>
+	                  <span className="text-xs text-slate-400">{Math.round(selectedElement.opacity * 100)}%</span>
                 </div>
                 <Slider
                   value={[selectedElement.opacity]}
@@ -1880,7 +1880,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                       <button
                         key={color}
                         type="button"
-                        className="size-7 rounded-full border border-slate-300 shadow-sm"
+	                        className="size-7 rounded-full border border-white/20 shadow-sm"
                         style={{ backgroundColor: color }}
                         aria-label={`Usar color ${color}`}
                         onClick={() => updateSelected({ fill: color })}
@@ -1904,7 +1904,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
               </div>
             </div>
           ) : (
-            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm leading-6 text-slate-500">
+	            <div className="rounded-md border border-dashed border-white/15 bg-[#20222b] p-4 text-sm leading-6 text-slate-400">
               Haz click en cualquier imagen, texto o forma para ver sus controladores y propiedades.
             </div>
           )}
