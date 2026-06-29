@@ -143,9 +143,13 @@ import {
   DESIGN_TEMPLATES,
   createBlankDocumentForFormat,
   createDocumentFromTemplate,
+  createDocumentFromSharedTemplate,
   resizeDocumentToFormat,
+  createSharedTemplateDraft,
   type DesignFormatId,
   type DesignTemplateId,
+  type SharedTemplateRecord,
+  type SharedTemplateSummary,
 } from "@/editor/templates"
 import {
   EXPORT_FORMATS,
@@ -188,6 +192,13 @@ type CommentPersistence = {
   listComments: (projectId: string) => Promise<EditorComment[]>
   createComment: (projectId: string, comment: CommentDraft) => Promise<void>
 }
+type SharedTemplatePersistence = {
+  isEnabled: boolean
+  isLoading: boolean
+  templates: SharedTemplateSummary[]
+  publishTemplate: (draft: ReturnType<typeof createSharedTemplateDraft>) => Promise<void>
+  loadTemplate: (templateId: string) => Promise<SharedTemplateRecord | null>
+}
 type DocumentUpdater = EditorDocument | ((currentDocument: EditorDocument) => EditorDocument)
 
 const colorSwatches = ["#111827", "#ffffff", "#ef4444", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6"]
@@ -224,6 +235,14 @@ const localCommentPersistence: CommentPersistence = {
   isEnabled: false,
   listComments: async () => [],
   createComment: async () => undefined,
+}
+
+const localSharedTemplatePersistence: SharedTemplatePersistence = {
+  isEnabled: false,
+  isLoading: false,
+  templates: [],
+  publishTemplate: async () => undefined,
+  loadTemplate: async () => null,
 }
 
 type ToolId =
@@ -661,10 +680,12 @@ function EditorApp({
   persistence,
   assetPersistence,
   commentPersistence,
+  sharedTemplatePersistence,
 }: {
   persistence: ProjectPersistence
   assetPersistence: AssetPersistence
   commentPersistence: CommentPersistence
+  sharedTemplatePersistence: SharedTemplatePersistence
 }) {
   const [documentHistory, setDocumentHistory] = useState(() =>
     createHistoryState<EditorDocument>(createInitialDocument(createId)),
@@ -680,6 +701,10 @@ function EditorApp({
   const [commentBody, setCommentBody] = useState("")
   const [commentAuthor, setCommentAuthor] = useState("Colaborador")
   const [commentError, setCommentError] = useState("")
+  const [sharedTemplateName, setSharedTemplateName] = useState("")
+  const [sharedTemplateDescription, setSharedTemplateDescription] = useState("")
+  const [sharedTemplateAuthor, setSharedTemplateAuthor] = useState("Equipo")
+  const [sharedTemplateStatus, setSharedTemplateStatus] = useState("")
   const [localAssets, setLocalAssets] = useState<LibraryAsset[]>([])
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
@@ -1365,6 +1390,46 @@ function EditorApp({
     setDocument((currentDocument) => resizeDocumentToFormat(currentDocument, formatId))
   }
 
+  const publishCurrentDocumentAsTemplate = async () => {
+    if (!sharedTemplatePersistence.isEnabled) {
+      setSharedTemplateStatus("Conecta Convex para publicar plantillas.")
+      return
+    }
+
+    const draft = createSharedTemplateDraft({
+      document,
+      name: sharedTemplateName || document.name,
+      description: sharedTemplateDescription,
+      authorName: sharedTemplateAuthor,
+    })
+
+    try {
+      await sharedTemplatePersistence.publishTemplate(draft)
+      setSharedTemplateName("")
+      setSharedTemplateDescription("")
+      setSharedTemplateStatus("Plantilla publicada.")
+    } catch (error) {
+      setSharedTemplateStatus(error instanceof Error ? error.message : "No se pudo publicar la plantilla.")
+    }
+  }
+
+  const applySharedTemplate = async (templateId: string) => {
+    const template = await sharedTemplatePersistence.loadTemplate(templateId)
+
+    if (!template || !isEditorDocument(template.canvas)) {
+      setSharedTemplateStatus("No se pudo abrir esta plantilla.")
+      return
+    }
+
+    const nextDocument = createDocumentFromSharedTemplate(template, createId)
+
+    replaceDocumentHistory(nextDocument)
+    setCurrentProjectId(null)
+    setActivePageId(nextDocument.pages[0]?.id ?? null)
+    setSelection(null)
+    setSharedTemplateStatus("")
+  }
+
   const renderPanelSearch = (placeholder: string) => (
     <PanelSearch
       placeholder={placeholder}
@@ -1400,6 +1465,11 @@ function EditorApp({
       "name",
       "description",
       "formatId",
+    ])
+    const filteredSharedTemplates = filterSearchItems(sharedTemplatePersistence.templates, panelSearchQuery, [
+      "name",
+      "description",
+      "authorName",
     ])
     const toolActions = [
       { icon: MousePointer2, label: "Seleccionar", onClick: () => setSelection(null), disabled: false },
@@ -1836,6 +1906,76 @@ function EditorApp({
                 <span className={`block h-24 bg-gradient-to-br ${template.accent}`} />
                 <span className="block px-3 pt-2 text-sm font-semibold text-white">{template.name}</span>
                 <span className="block px-3 pb-3 pt-1 text-xs text-slate-400">{template.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Compartidas</h3>
+          <div className="space-y-2 rounded-md border border-white/10 bg-[#20222b] p-3">
+            <Input
+              value={sharedTemplateName}
+              placeholder={document.name}
+              onChange={(event) => setSharedTemplateName(event.target.value)}
+              disabled={!sharedTemplatePersistence.isEnabled}
+            />
+            <Input
+              value={sharedTemplateDescription}
+              placeholder="Descripcion"
+              onChange={(event) => setSharedTemplateDescription(event.target.value)}
+              disabled={!sharedTemplatePersistence.isEnabled}
+            />
+            <Input
+              value={sharedTemplateAuthor}
+              placeholder="Autor"
+              onChange={(event) => setSharedTemplateAuthor(event.target.value)}
+              disabled={!sharedTemplatePersistence.isEnabled}
+            />
+            <Button
+              type="button"
+              className="w-full"
+              onClick={publishCurrentDocumentAsTemplate}
+              disabled={!sharedTemplatePersistence.isEnabled}
+            >
+              <LayoutTemplate data-icon="inline-start" />
+              Publicar plantilla
+            </Button>
+            {sharedTemplateStatus ? (
+              <p className="text-xs leading-5 text-slate-400">{sharedTemplateStatus}</p>
+            ) : null}
+            {!sharedTemplatePersistence.isEnabled ? (
+              <p className="text-xs leading-5 text-slate-500">Convex no esta conectado.</p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2">
+            {sharedTemplatePersistence.isLoading ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Cargando plantillas compartidas...
+              </div>
+            ) : null}
+            {!sharedTemplatePersistence.isLoading && sharedTemplatePersistence.templates.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Todavia no hay plantillas compartidas.
+              </div>
+            ) : null}
+            {sharedTemplatePersistence.templates.length > 0 && filteredSharedTemplates.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                No hay plantillas compartidas para esa busqueda.
+              </div>
+            ) : null}
+            {filteredSharedTemplates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="rounded-md border border-white/10 bg-[#171922] p-3 text-left transition hover:border-[#00c4cc]"
+                onClick={() => void applySharedTemplate(template.id)}
+              >
+                <span className="block truncate text-sm font-semibold text-white">{template.name}</span>
+                <span className="block text-xs text-slate-400">
+                  {template.pageCount} paginas - {template.elementCount} elementos
+                </span>
+                <span className="block truncate pt-1 text-xs text-slate-500">{template.authorName}</span>
               </button>
             ))}
           </div>
@@ -2683,11 +2823,15 @@ function ConvexBackedApp() {
   const convex = useConvex()
   const projectRecords = useQuery(api.projects.list) as ProjectRecord[] | undefined
   const assetRecords = useQuery(api.assets.list) as AssetRecord[] | undefined
+  const sharedTemplateRecords = useQuery(api.sharedTemplates.list) as
+    | (Omit<SharedTemplateSummary, "id"> & { _id: string })[]
+    | undefined
   const createProject = useMutation(api.projects.create)
   const updateProject = useMutation(api.projects.updateCanvas)
   const generateAssetUploadUrl = useMutation(api.assets.generateUploadUrl)
   const saveAsset = useMutation(api.assets.save)
   const createComment = useMutation(api.comments.create)
+  const createSharedTemplate = useMutation(api.sharedTemplates.create)
 
   const projects = useMemo(
     () => (projectRecords ?? []).map((project) => summarizeProjectRecord(project)),
@@ -2699,6 +2843,19 @@ function ConvexBackedApp() {
         .map((asset) => summarizeAssetRecord(asset))
         .filter((asset): asset is LibraryAsset => Boolean(asset)),
     [assetRecords],
+  )
+  const sharedTemplates = useMemo<SharedTemplateSummary[]>(
+    () =>
+      (sharedTemplateRecords ?? []).map((template) => ({
+        id: template._id,
+        name: template.name,
+        description: template.description,
+        authorName: template.authorName,
+        pageCount: template.pageCount,
+        elementCount: template.elementCount,
+        createdAt: template.createdAt,
+      })),
+    [sharedTemplateRecords],
   )
 
   const saveProject = useCallback(
@@ -2808,11 +2965,57 @@ function ConvexBackedApp() {
     [convex, createComment],
   )
 
+  const publishTemplate = useCallback(
+    async (draft: ReturnType<typeof createSharedTemplateDraft>) => {
+      await createSharedTemplate({
+        name: draft.name,
+        description: draft.description,
+        authorName: draft.authorName,
+        canvas: draft.canvas,
+      })
+    },
+    [createSharedTemplate],
+  )
+
+  const loadSharedTemplate = useCallback(
+    async (templateId: string) => {
+      const template = (await convex.query(api.sharedTemplates.get, {
+        id: templateId as Id<"sharedTemplates">,
+      })) as (Omit<SharedTemplateRecord, "id"> & { _id: string }) | null
+
+      return template
+        ? {
+            id: template._id,
+            name: template.name,
+            description: template.description,
+            authorName: template.authorName,
+            canvas: template.canvas,
+            pageCount: template.pageCount,
+            elementCount: template.elementCount,
+            createdAt: template.createdAt,
+          }
+        : null
+    },
+    [convex],
+  )
+
+  const sharedTemplatePersistence = useMemo<SharedTemplatePersistence>(
+    () => ({
+      isEnabled: true,
+      isLoading: sharedTemplateRecords === undefined,
+      templates: sharedTemplates,
+      publishTemplate,
+      loadTemplate: loadSharedTemplate,
+    }),
+    [loadSharedTemplate, publishTemplate, sharedTemplateRecords, sharedTemplates],
+  )
+
   return (
     <EditorApp
       persistence={persistence}
       assetPersistence={assetPersistence}
       commentPersistence={commentPersistence}
+      sharedTemplatePersistence={sharedTemplatePersistence}
     />
   )
 }
@@ -2827,6 +3030,7 @@ function App() {
       persistence={localProjectPersistence}
       assetPersistence={localAssetPersistence}
       commentPersistence={localCommentPersistence}
+      sharedTemplatePersistence={localSharedTemplatePersistence}
     />
   )
 }

@@ -41,7 +41,7 @@ surface grows.
   keep document/table records limited to metadata and URLs.
 - `src/editor/snapping.ts`: drag-time guides and snap math.
 - `src/editor/templates.ts`: design formats, template definitions, document
-  creation from templates, and resize math.
+  creation from templates, shared-template cloning/rekeying, and resize math.
 - `src/editor/history.ts`: undo/redo state transitions. Keep history generic
   and framework-light, then wire it from React.
 - `src/editor/search.ts`: shared accent-insensitive search/filter helpers for
@@ -60,6 +60,8 @@ surface grows.
   pagination.
 - List queries should return summaries when possible. Fetch full canvas data
   only for explicit open/edit flows.
+- Shared templates should list lightweight summaries and fetch full canvas data
+  only when the user applies one.
 - All public Convex functions need validators.
 - Keep high-churn collaboration or presence state separate from stable project
   documents when collaboration is introduced.
@@ -83,6 +85,8 @@ surface grows.
   and crop values, and legacy image normalization.
 - Layout helpers: snapping, resize, positioning, element alignment,
   distribution, and template placement.
+- Template helpers: publish drafts, clone documents, and rekey pages/elements
+  when instantiating shared templates.
 - Project helpers: save payloads, validation, summary counts, autosave change
   detection.
 - Asset helpers: filename normalization, supported image types, local fallback

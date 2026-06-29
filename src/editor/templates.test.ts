@@ -6,6 +6,8 @@ import {
   DESIGN_TEMPLATES,
   createBlankDocumentForFormat,
   createDocumentFromTemplate,
+  createDocumentFromSharedTemplate,
+  createSharedTemplateDraft,
   resizeDocumentToFormat,
 } from "./templates"
 
@@ -76,5 +78,61 @@ describe("design templates and formats", () => {
       "story-announcement",
       "pitch-deck",
     ])
+  })
+
+  it("creates a shared template draft without mutating the source document", () => {
+    const nextId = idSequence()
+    const document = createDocumentFromTemplate("launch-post", nextId)
+
+    const draft = createSharedTemplateDraft({
+      document,
+      name: "Campana reutilizable",
+      description: "Lista para duplicar.",
+      authorName: "Ron",
+      createdAt: 123,
+    })
+
+    document.pages[0].name = "Mutada"
+
+    expect(draft).toMatchObject({
+      name: "Campana reutilizable",
+      description: "Lista para duplicar.",
+      authorName: "Ron",
+      createdAt: 123,
+      pageCount: 1,
+      elementCount: 4,
+    })
+    expect(draft.canvas.pages[0].name).toBe("Pagina 1")
+  })
+
+  it("creates a fresh editable document from a shared template record", () => {
+    const template = createSharedTemplateDraft({
+      document: createDocumentFromTemplate("launch-post", idSequence()),
+      name: "Post reusable",
+      description: "",
+      authorName: "Equipo",
+      createdAt: 456,
+    })
+    const nextId = (() => {
+      let index = 0
+
+      return () => {
+        index += 1
+        return `new-${index}`
+      }
+    })()
+
+    const document = createDocumentFromSharedTemplate(
+      {
+        id: "template-1",
+        ...template,
+      },
+      nextId,
+    )
+
+    expect(document.name).toBe("Post reusable")
+    expect(document.pages[0].id).toBe("new-1")
+    expect(document.pages[0].elements.map((element) => element.id)).toEqual(["new-2", "new-3", "new-4", "new-5"])
+    expect(document.pages[0].elements[0].id).not.toBe(template.canvas.pages[0].elements[0].id)
   })
 })

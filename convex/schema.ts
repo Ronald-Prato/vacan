@@ -22,4 +22,13 @@ export default defineSchema({
     elementId: v.union(v.string(), v.null()),
     createdAt: v.number(),
   }).index("by_projectId_and_createdAt", ["projectId", "createdAt"]),
+  sharedTemplates: defineTable({
+    name: v.string(),
+    description: v.string(),
+    authorName: v.string(),
+    canvas: v.any(),
+    pageCount: v.number(),
+    elementCount: v.number(),
+    createdAt: v.number(),
+  }).index("by_createdAt", ["createdAt"]),
 })

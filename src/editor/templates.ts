@@ -26,6 +26,21 @@ export type DesignTemplate = {
   accent: string
 }
 
+export type SharedTemplateDraft = {
+  name: string
+  description: string
+  authorName: string
+  canvas: EditorDocument
+  pageCount: number
+  elementCount: number
+  createdAt: number
+}
+
+export type SharedTemplateRecord = SharedTemplateDraft & {
+  id: string
+}
+export type SharedTemplateSummary = Omit<SharedTemplateRecord, "canvas">
+
 export const DESIGN_FORMATS: DesignFormat[] = [
   {
     id: "square-post",
@@ -135,6 +150,50 @@ export function resizeDocumentToFormat(
   }
 }
 
+export function createSharedTemplateDraft({
+  document,
+  name,
+  description,
+  authorName,
+  createdAt = Date.now(),
+}: {
+  document: EditorDocument
+  name: string
+  description: string
+  authorName: string
+  createdAt?: number
+}): SharedTemplateDraft {
+  const canvas = cloneEditorDocument(document)
+
+  return {
+    name: name.trim() || document.name,
+    description: description.trim(),
+    authorName: authorName.trim() || "Equipo",
+    canvas,
+    pageCount: canvas.pages.length,
+    elementCount: canvas.pages.reduce((count, page) => count + page.elements.length, 0),
+    createdAt,
+  }
+}
+
+export function createDocumentFromSharedTemplate(
+  template: SharedTemplateRecord,
+  createId: IdFactory,
+): EditorDocument {
+  return {
+    ...cloneEditorDocument(template.canvas),
+    name: template.name,
+    pages: template.canvas.pages.map((page) => ({
+      ...page,
+      id: createId(),
+      elements: page.elements.map((element) => ({
+        ...element,
+        id: createId(),
+      }) as CanvasElement),
+    })),
+  }
+}
+
 function getDesignTemplate(templateId: DesignTemplateId): DesignTemplate {
   const template = DESIGN_TEMPLATES.find((candidate) => candidate.id === templateId)
 
@@ -197,6 +256,10 @@ function resizeElement(element: CanvasElement, scaleX: number, scaleY: number): 
     width: element.width * scaleX,
     height: element.height * scaleY,
   } as CanvasElement
+}
+
+function cloneEditorDocument(document: EditorDocument): EditorDocument {
+  return JSON.parse(JSON.stringify(document)) as EditorDocument
 }
 
 function shape(
