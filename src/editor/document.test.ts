@@ -5,15 +5,23 @@ import {
   addElementToPage,
   addPage,
   alignElementToCanvas,
+  createMultiSelection,
   createImageElement,
   createInitialDocument,
+  createSelectionForElement,
   createShapeElement,
   createTextElement,
+  deleteElements,
   deleteElement,
   distributePageElements,
+  duplicateElements,
   duplicateElement,
   duplicateElementBehind,
   findElement,
+  findSelectedElements,
+  getSelectionElementIds,
+  groupElements,
+  moveElementsByDelta,
   moveElementBackward,
   moveElementForward,
   moveElementToBack,
@@ -21,8 +29,11 @@ import {
   normalizeImageElement,
   normalizeTextElement,
   pageElementCount,
+  selectionIncludesElement,
   toggleElementLocked,
   toggleElementVisibility,
+  toggleElementSelection,
+  ungroupElements,
   updateImageCrop,
   updateImageFilters,
   updateImageMask,
@@ -147,6 +158,134 @@ describe("editor document model", () => {
     const duplicated = duplicateElementBehind(withText, pageId, text.id, nextId)
 
     expect(duplicated.pages[0].elements.map((element) => element.id)).toEqual(["id-3", "id-2"])
+  })
+
+  it("creates bounded multi-selection records with stable selected ids", () => {
+    const empty = createMultiSelection("page-1", [])
+    const single = createMultiSelection("page-1", ["shape-1", "shape-1"])
+    const multiple = createMultiSelection("page-1", ["shape-1", "text-1", "shape-1"])
+
+    expect(empty).toBeNull()
+    expect(single).toEqual({ pageId: "page-1", elementId: "shape-1" })
+    expect(multiple).toEqual({ pageId: "page-1", elementIds: ["shape-1", "text-1"] })
+    expect(getSelectionElementIds(multiple)).toEqual(["shape-1", "text-1"])
+    expect(selectionIncludesElement(multiple, "page-1", "text-1")).toBe(true)
+    expect(selectionIncludesElement(multiple, "page-2", "text-1")).toBe(false)
+  })
+
+  it("finds all selected elements from a multi-selection", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const withElements = [first, second].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    expect(findSelectedElements(withElements, createMultiSelection(pageId, [first.id, second.id]))).toEqual([
+      first,
+      second,
+    ])
+  })
+
+  it("deletes, duplicates, and moves multi-selected elements together", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = { ...createShapeElement("rect", nextId), x: 10, y: 20 }
+    const second = { ...createShapeElement("circle", nextId), x: 40, y: 60 }
+    const third = { ...createShapeElement("triangle", nextId), x: 80, y: 90 }
+    const withElements = [first, second, third].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    const moved = moveElementsByDelta(withElements, pageId, [first.id, second.id], { x: 12, y: -8 })
+    expect(findElement(moved, { pageId, elementId: first.id })).toMatchObject({ x: 22, y: 12 })
+    expect(findElement(moved, { pageId, elementId: second.id })).toMatchObject({ x: 52, y: 52 })
+    expect(findElement(moved, { pageId, elementId: third.id })).toMatchObject({ x: 80, y: 90 })
+
+    const duplicated = duplicateElements(moved, pageId, [first.id, second.id], nextId)
+    expect(duplicated.duplicatedIds).toEqual(["id-5", "id-6"])
+    expect(duplicated.document.pages[0].elements.map((element) => element.id)).toEqual([
+      first.id,
+      "id-5",
+      second.id,
+      "id-6",
+      third.id,
+    ])
+
+    const deleted = deleteElements(duplicated.document, pageId, [first.id, second.id])
+    expect(deleted.pages[0].elements.map((element) => element.id)).toEqual(["id-5", "id-6", third.id])
+  })
+
+  it("groups selected elements and selects grouped layers together", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const third = createShapeElement("triangle", nextId)
+    const withElements = [first, second, third].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    const grouped = groupElements(withElements, pageId, [first.id, second.id], nextId)
+
+    expect(grouped.groupId).toBe("id-5")
+    expect(findElement(grouped.document, { pageId, elementId: first.id })).toMatchObject({ groupId: "id-5" })
+    expect(findElement(grouped.document, { pageId, elementId: second.id })).toMatchObject({ groupId: "id-5" })
+    expect(createSelectionForElement(grouped.document, pageId, first.id)).toEqual({
+      pageId,
+      elementIds: [first.id, second.id],
+    })
+    expect(toggleElementSelection(grouped.document, null, pageId, first.id)).toEqual({
+      pageId,
+      elementIds: [first.id, second.id],
+    })
+  })
+
+  it("duplicates grouped elements into a separate copied group", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const withElements = [first, second].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+    const grouped = groupElements(withElements, pageId, [first.id, second.id], nextId)
+    const duplicated = duplicateElements(grouped.document, pageId, [first.id, second.id], nextId)
+
+    const firstCopy = findElement(duplicated.document, { pageId, elementId: "id-6" })
+    const secondCopy = findElement(duplicated.document, { pageId, elementId: "id-7" })
+
+    expect(duplicated.duplicatedIds).toEqual(["id-6", "id-7"])
+    expect(firstCopy?.groupId).toBe("id-5")
+    expect(secondCopy?.groupId).toBe("id-5")
+    expect(firstCopy?.groupId).not.toBe(grouped.groupId)
+  })
+
+  it("ungroups every group touched by the current selection", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const withElements = [first, second].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+    const grouped = groupElements(withElements, pageId, [first.id, second.id], nextId)
+    const ungrouped = ungroupElements(grouped.document, pageId, [first.id])
+
+    expect(findElement(ungrouped, { pageId, elementId: first.id })).toMatchObject({ groupId: undefined })
+    expect(findElement(ungrouped, { pageId, elementId: second.id })).toMatchObject({ groupId: undefined })
+    expect(createSelectionForElement(ungrouped, pageId, first.id)).toEqual({ pageId, elementId: first.id })
   })
 
   it("deletes elements from the selected page", () => {

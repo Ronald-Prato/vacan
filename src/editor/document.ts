@@ -74,6 +74,7 @@ export type BaseElement = {
   opacity: number
   locked: boolean
   visible?: boolean
+  groupId?: string
 }
 
 export type ImageElement = BaseElement & {
@@ -131,10 +132,17 @@ export type EditorDocument = {
   pages: Page[]
 }
 
-export type Selection = {
+export type ElementSelection = {
   pageId: string
   elementId: string
-} | null
+}
+
+export type MultiSelection = {
+  pageId: string
+  elementIds: string[]
+}
+
+export type Selection = ElementSelection | MultiSelection | null
 
 export type IdFactory = () => string
 
@@ -376,6 +384,19 @@ export function deleteElement(document: EditorDocument, pageId: string, elementI
   }))
 }
 
+export function deleteElements(document: EditorDocument, pageId: string, elementIds: string[]): EditorDocument {
+  const selectedIds = new Set(elementIds)
+
+  if (selectedIds.size === 0) {
+    return document
+  }
+
+  return updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.filter((element) => !selectedIds.has(element.id)),
+  }))
+}
+
 export function duplicateElement(
   document: EditorDocument,
   pageId: string,
@@ -414,6 +435,60 @@ export function duplicateElement(
   return { document: nextDocument, duplicatedId }
 }
 
+export function duplicateElements(
+  document: EditorDocument,
+  pageId: string,
+  elementIds: string[],
+  createId: IdFactory = fallbackIdFactory,
+  offset = 28,
+): { document: EditorDocument; duplicatedIds: string[] } {
+  const selectedIds = new Set(elementIds)
+  const duplicatedIds: string[] = []
+  const copiedGroupIds = new Map<string, string>()
+
+  if (selectedIds.size === 0) {
+    return { document, duplicatedIds }
+  }
+
+  const nextDocument = updatePage(document, pageId, (page) => {
+    const elements = page.elements.flatMap((element) => {
+      if (!selectedIds.has(element.id)) {
+        return [element]
+      }
+
+      const copiedGroupId = element.groupId
+        ? (copiedGroupIds.get(element.groupId) ?? createCopiedGroupId(copiedGroupIds, element.groupId, createId))
+        : undefined
+      const duplicatedId = createId()
+      duplicatedIds.push(duplicatedId)
+
+      const copy: CanvasElement = {
+        ...element,
+        id: duplicatedId,
+        name: `${element.name} copia`,
+        x: element.x + offset,
+        y: element.y + offset,
+        groupId: copiedGroupId,
+      }
+
+      return [element, copy]
+    })
+
+    return {
+      ...page,
+      elements,
+    }
+  })
+
+  return { document: nextDocument, duplicatedIds }
+}
+
+function createCopiedGroupId(copiedGroupIds: Map<string, string>, sourceGroupId: string, createId: IdFactory): string {
+  const copiedGroupId = createId()
+  copiedGroupIds.set(sourceGroupId, copiedGroupId)
+  return copiedGroupId
+}
+
 export function duplicateElementBehind(
   document: EditorDocument,
   pageId: string,
@@ -449,11 +524,111 @@ export function findElement(document: EditorDocument, selection: Selection): Can
     return null
   }
 
+  const elementId = getSelectionElementIds(selection)[0]
+
   return (
     document.pages
       .find((page) => page.id === selection.pageId)
-      ?.elements.find((element) => element.id === selection.elementId) ?? null
+      ?.elements.find((element) => element.id === elementId) ?? null
   )
+}
+
+export function findSelectedElements(document: EditorDocument, selection: Selection): CanvasElement[] {
+  if (!selection) {
+    return []
+  }
+
+  const selectedIds = new Set(getSelectionElementIds(selection))
+
+  return (
+    document.pages
+      .find((page) => page.id === selection.pageId)
+      ?.elements.filter((element) => selectedIds.has(element.id)) ?? []
+  )
+}
+
+export function createMultiSelection(pageId: string, elementIds: string[]): Selection {
+  const uniqueElementIds = [...new Set(elementIds)].filter(Boolean)
+
+  if (uniqueElementIds.length === 0) {
+    return null
+  }
+
+  if (uniqueElementIds.length === 1) {
+    return {
+      pageId,
+      elementId: uniqueElementIds[0],
+    }
+  }
+
+  return {
+    pageId,
+    elementIds: uniqueElementIds,
+  }
+}
+
+export function getSelectionElementIds(selection: Selection): string[] {
+  if (!selection) {
+    return []
+  }
+
+  return "elementIds" in selection ? selection.elementIds : [selection.elementId]
+}
+
+export function selectionIncludesElement(selection: Selection, pageId: string, elementId: string): boolean {
+  return selection?.pageId === pageId && getSelectionElementIds(selection).includes(elementId)
+}
+
+export function createSelectionForElement(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): Selection {
+  const page = document.pages.find((candidate) => candidate.id === pageId)
+  const element = page?.elements.find((candidate) => candidate.id === elementId)
+
+  if (!page || !element) {
+    return null
+  }
+
+  if (!element.groupId) {
+    return {
+      pageId,
+      elementId,
+    }
+  }
+
+  const groupedIds = page.elements
+    .filter((candidate) => candidate.groupId === element.groupId)
+    .map((candidate) => candidate.id)
+
+  return createMultiSelection(pageId, groupedIds)
+}
+
+export function toggleElementSelection(
+  document: EditorDocument,
+  selection: Selection,
+  pageId: string,
+  elementId: string,
+): Selection {
+  const targetSelection = createSelectionForElement(document, pageId, elementId)
+  const targetIds = getSelectionElementIds(targetSelection)
+
+  if (targetIds.length === 0) {
+    return selection
+  }
+
+  if (!selection || selection.pageId !== pageId) {
+    return targetSelection
+  }
+
+  const currentIds = getSelectionElementIds(selection)
+  const shouldRemove = targetIds.every((id) => currentIds.includes(id))
+  const nextIds = shouldRemove
+    ? currentIds.filter((id) => !targetIds.includes(id))
+    : [...currentIds, ...targetIds]
+
+  return createMultiSelection(pageId, nextIds)
 }
 
 export function pageElementCount(document: EditorDocument, pageId: string): number {
@@ -505,6 +680,24 @@ export function toggleElementLocked(
   }))
 }
 
+export function setElementsLocked(
+  document: EditorDocument,
+  pageId: string,
+  elementIds: string[],
+  locked: boolean,
+): EditorDocument {
+  const selectedIds = new Set(elementIds)
+
+  if (selectedIds.size === 0) {
+    return document
+  }
+
+  return updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) => (selectedIds.has(element.id) ? { ...element, locked } : element)),
+  }))
+}
+
 export function toggleElementVisibility(
   document: EditorDocument,
   pageId: string,
@@ -516,6 +709,87 @@ export function toggleElementVisibility(
       element.id === elementId ? { ...element, visible: !(element.visible ?? true) } : element,
     ),
   }))
+}
+
+export function moveElementsByDelta(
+  document: EditorDocument,
+  pageId: string,
+  elementIds: string[],
+  delta: { x: number; y: number },
+): EditorDocument {
+  const selectedIds = new Set(elementIds)
+
+  if (selectedIds.size === 0 || (delta.x === 0 && delta.y === 0)) {
+    return document
+  }
+
+  return updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) =>
+      selectedIds.has(element.id)
+        ? {
+            ...element,
+            x: element.x + delta.x,
+            y: element.y + delta.y,
+          }
+        : element,
+    ),
+  }))
+}
+
+export function groupElements(
+  document: EditorDocument,
+  pageId: string,
+  elementIds: string[],
+  createId: IdFactory = fallbackIdFactory,
+): { document: EditorDocument; groupId: string | null } {
+  const selectedIds = new Set(elementIds)
+
+  if (selectedIds.size < 2) {
+    return { document, groupId: null }
+  }
+
+  const groupId = createId()
+
+  return {
+    groupId,
+    document: updatePage(document, pageId, (page) => ({
+      ...page,
+      elements: page.elements.map((element) => (selectedIds.has(element.id) ? { ...element, groupId } : element)),
+    })),
+  }
+}
+
+export function ungroupElements(document: EditorDocument, pageId: string, elementIds: string[]): EditorDocument {
+  const selectedIds = new Set(elementIds)
+
+  if (selectedIds.size === 0) {
+    return document
+  }
+
+  return updatePage(document, pageId, (page) => {
+    const groupIds = new Set(
+      page.elements
+        .filter((element) => selectedIds.has(element.id) && element.groupId)
+        .map((element) => element.groupId as string),
+    )
+
+    if (groupIds.size === 0) {
+      return page
+    }
+
+    return {
+      ...page,
+      elements: page.elements.map((element) =>
+        element.groupId && groupIds.has(element.groupId)
+          ? {
+              ...element,
+              groupId: undefined,
+            }
+          : element,
+      ),
+    }
+  })
 }
 
 export function alignElementToCanvas(

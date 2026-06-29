@@ -74,26 +74,36 @@ import {
   SHAPE_OPTIONS,
   addElementToPage,
   alignElementToCanvas,
+  createMultiSelection,
   createDefaultImageCrop,
   createImageElement,
   createInitialDocument,
   createDefaultImageFilters,
+  createSelectionForElement,
   createShapeElement,
   createTextElement,
-  deleteElement,
+  deleteElements,
   distributePageElements,
-  duplicateElement,
+  duplicateElements,
   duplicateElementBehind,
   findElement,
+  findSelectedElements,
+  getSelectionElementIds,
+  groupElements,
   insertPageAfter,
+  moveElementsByDelta,
   moveElementBackward,
   moveElementForward,
   moveElementToBack,
   moveElementToFront,
   normalizeImageElement,
   normalizeTextElement,
+  selectionIncludesElement,
+  setElementsLocked,
   toggleElementLocked,
+  toggleElementSelection,
   toggleElementVisibility,
+  ungroupElements,
   updateImageCrop,
   updateImageFilters,
   updateImageMask,
@@ -506,6 +516,7 @@ function EditableShape({
 function EditableElement({
   element,
   isSelected,
+  canTransform,
   onSelect,
   onChange,
   onAltDragStart,
@@ -515,7 +526,8 @@ function EditableElement({
 }: {
   element: CanvasElement
   isSelected: boolean
-  onSelect: () => void
+  canTransform: boolean
+  onSelect: (additive: boolean) => void
   onChange: (changes: Partial<CanvasElement>) => void
   onAltDragStart: () => void
   onDragMove: (position: { x: number; y: number }) => { x: number; y: number }
@@ -576,8 +588,8 @@ function EditableElement({
         height={element.height}
         rotation={element.rotation}
         draggable={!element.locked}
-        onClick={onSelect}
-        onTap={onSelect}
+        onClick={(event) => onSelect(event.evt.shiftKey || event.evt.metaKey)}
+        onTap={() => onSelect(false)}
         onDblClick={() => {
           if (element.type === "text") {
             onTextDoubleClick()
@@ -629,8 +641,18 @@ function EditableElement({
             opacity={textElement.opacity}
           />
         ) : null}
+        {isSelected ? (
+          <Rect
+            width={element.width}
+            height={element.height}
+            listening={false}
+            stroke="#00c4cc"
+            strokeWidth={4}
+            dash={canTransform ? undefined : [20, 14]}
+          />
+        ) : null}
       </KonvaGroup>
-      {isSelected && !element.locked ? (
+      {isSelected && canTransform && !element.locked ? (
         <Transformer
           ref={transformerRef}
           rotateEnabled
@@ -805,7 +827,16 @@ function EditorApp({
 
   const resolvedActivePageId = selection?.pageId ?? activePageId ?? document.pages[0]?.id
   const activePage = document.pages.find((page) => page.id === resolvedActivePageId) ?? document.pages[0]
-  const selectedElement = useMemo(() => findElement(document, selection), [document, selection])
+  const selectedElementIds = useMemo(() => getSelectionElementIds(selection), [selection])
+  const selectedElements = useMemo(() => findSelectedElements(document, selection), [document, selection])
+  const selectedElement = useMemo(
+    () => (selectedElementIds.length === 1 ? findElement(document, selection) : null),
+    [document, selectedElementIds.length, selection],
+  )
+  const hasSelection = selectedElementIds.length > 0
+  const hasMultiSelection = selectedElementIds.length > 1
+  const allSelectedLocked = selectedElements.length > 0 && selectedElements.every((element) => element.locked)
+  const selectedElementsHaveGroup = selectedElements.some((element) => element.groupId)
   const selectedImageElement = selectedElement?.type === "image" ? normalizeImageElement(selectedElement) : null
   const selectedTextElement = selectedElement?.type === "text" ? normalizeTextElement(selectedElement) : null
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
@@ -1070,6 +1101,15 @@ function EditorApp({
     setDocument((currentDocument) => ({ ...currentDocument, name }))
   }
 
+  const selectElement = (pageId: string, elementId: string, additive = false) => {
+    setActivePageId(pageId)
+    setSelection((currentSelection) =>
+      additive
+        ? toggleElementSelection(document, currentSelection, pageId, elementId)
+        : createSelectionForElement(document, pageId, elementId),
+    )
+  }
+
   const addImageAssetToPage = (
     asset: Asset,
     imageSize: { width: number; height: number },
@@ -1207,51 +1247,51 @@ function EditorApp({
   }
 
   const updateSelected = (changes: Partial<CanvasElement>) => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      updateElement(currentDocument, selection.pageId, selection.elementId, changes),
+      updateElement(currentDocument, selection.pageId, selectedElement.id, changes),
     )
   }
 
   const updateSelectedTextStyle = (changes: Parameters<typeof updateTextStyle>[3]) => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      updateTextStyle(currentDocument, selection.pageId, selection.elementId, changes),
+      updateTextStyle(currentDocument, selection.pageId, selectedElement.id, changes),
     )
   }
 
   const updateSelectedImageFilters = (changes: Parameters<typeof updateImageFilters>[3]) => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      updateImageFilters(currentDocument, selection.pageId, selection.elementId, changes),
+      updateImageFilters(currentDocument, selection.pageId, selectedElement.id, changes),
     )
   }
 
   const updateSelectedImageCrop = (changes: Parameters<typeof updateImageCrop>[3]) => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      updateImageCrop(currentDocument, selection.pageId, selection.elementId, changes),
+      updateImageCrop(currentDocument, selection.pageId, selectedElement.id, changes),
     )
   }
 
   const updateSelectedImageMask = (mask: ImageMask) => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
-    setDocument((currentDocument) => updateImageMask(currentDocument, selection.pageId, selection.elementId, mask))
+    setDocument((currentDocument) => updateImageMask(currentDocument, selection.pageId, selectedElement.id, mask))
   }
 
   const submitComment = async () => {
@@ -1264,7 +1304,7 @@ function EditorApp({
       body: commentBody,
       authorName: commentAuthor,
       pageId: resolvedActivePageId ?? null,
-      elementId: selection?.elementId ?? null,
+      elementId: selectedElementIds[0] ?? null,
     })
 
     if (!draft.body) {
@@ -1284,24 +1324,24 @@ function EditorApp({
   }
 
   const removeSelected = () => {
-    if (!selection?.elementId) {
+    if (!selection || selectedElementIds.length === 0) {
       return
     }
 
-    setDocument((currentDocument) => deleteElement(currentDocument, selection.pageId, selection.elementId))
+    setDocument((currentDocument) => deleteElements(currentDocument, selection.pageId, selectedElementIds))
     setSelection(null)
   }
 
   const duplicateSelected = () => {
-    if (!selection?.elementId) {
+    if (!selection || selectedElementIds.length === 0) {
       return
     }
 
     setDocument((currentDocument) => {
-      const result = duplicateElement(currentDocument, selection.pageId, selection.elementId, createId)
+      const result = duplicateElements(currentDocument, selection.pageId, selectedElementIds, createId)
 
-      if (result.duplicatedId) {
-        setSelection({ pageId: selection.pageId, elementId: result.duplicatedId })
+      if (result.duplicatedIds.length > 0) {
+        setSelection(createMultiSelection(selection.pageId, result.duplicatedIds))
       }
 
       return result.document
@@ -1309,52 +1349,52 @@ function EditorApp({
   }
 
   const moveSelectedForward = () => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      moveElementForward(currentDocument, selection.pageId, selection.elementId),
+      moveElementForward(currentDocument, selection.pageId, selectedElement.id),
     )
   }
 
   const moveSelectedBackward = () => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      moveElementBackward(currentDocument, selection.pageId, selection.elementId),
+      moveElementBackward(currentDocument, selection.pageId, selectedElement.id),
     )
   }
 
   const moveSelectedToFront = () => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      moveElementToFront(currentDocument, selection.pageId, selection.elementId),
+      moveElementToFront(currentDocument, selection.pageId, selectedElement.id),
     )
   }
 
   const moveSelectedToBack = () => {
-    if (!selection?.elementId) {
+    if (!selection || !selectedElement) {
       return
     }
 
     setDocument((currentDocument) =>
-      moveElementToBack(currentDocument, selection.pageId, selection.elementId),
+      moveElementToBack(currentDocument, selection.pageId, selectedElement.id),
     )
   }
 
   const toggleSelectedLocked = () => {
-    if (!selection?.elementId) {
+    if (!selection || selectedElementIds.length === 0) {
       return
     }
 
     setDocument((currentDocument) =>
-      toggleElementLocked(currentDocument, selection.pageId, selection.elementId),
+      setElementsLocked(currentDocument, selection.pageId, selectedElementIds, !allSelectedLocked),
     )
   }
 
@@ -1363,13 +1403,37 @@ function EditorApp({
   }
 
   const alignSelectedToCanvas = (alignment: ElementAlignment) => {
-    if (!selection?.elementId) {
+    if (!selection || selectedElementIds.length === 0) {
       return
     }
 
     setDocument((currentDocument) =>
-      alignElementToCanvas(currentDocument, selection.pageId, selection.elementId, alignment),
+      selectedElementIds.reduce(
+        (nextDocument, elementId) => alignElementToCanvas(nextDocument, selection.pageId, elementId, alignment),
+        currentDocument,
+      ),
     )
+  }
+
+  const groupSelected = () => {
+    if (!selection || selectedElementIds.length < 2) {
+      return
+    }
+
+    setDocument((currentDocument) => {
+      const result = groupElements(currentDocument, selection.pageId, selectedElementIds, createId)
+      return result.document
+    })
+    setSelection(createMultiSelection(selection.pageId, selectedElementIds))
+  }
+
+  const ungroupSelected = () => {
+    if (!selection || selectedElementIds.length === 0) {
+      return
+    }
+
+    setDocument((currentDocument) => ungroupElements(currentDocument, selection.pageId, selectedElementIds))
+    setSelection(createMultiSelection(selection.pageId, selectedElementIds))
   }
 
   const distributeActivePageElements = (axis: ElementDistributionAxis) => {
@@ -1602,7 +1666,9 @@ function EditorApp({
       { icon: MousePointer2, label: "Seleccionar", onClick: () => setSelection(null), disabled: false },
       { icon: Undo2, label: "Deshacer", onClick: undoDocument, disabled: !canUndo },
       { icon: Redo2, label: "Rehacer", onClick: redoDocument, disabled: !canRedo },
-      { icon: Layers3, label: "Duplicar", onClick: duplicateSelected, disabled: !selectedElement },
+      { icon: Layers3, label: "Agrupar", onClick: groupSelected, disabled: selectedElementIds.length < 2 },
+      { icon: Layers3, label: "Desagrupar", onClick: ungroupSelected, disabled: !selectedElementsHaveGroup },
+      { icon: Layers3, label: "Duplicar", onClick: duplicateSelected, disabled: !hasSelection },
       { icon: BringToFront, label: "Al frente", onClick: moveSelectedToFront, disabled: !selectedElement },
       { icon: Layers3, label: "Adelante", onClick: moveSelectedForward, disabled: !selectedElement },
       { icon: Layers3, label: "Atras", onClick: moveSelectedBackward, disabled: !selectedElement },
@@ -1621,11 +1687,11 @@ function EditorApp({
       },
       {
         icon: Lock,
-        label: selectedElement?.locked ? "Desbloquear" : "Bloquear",
+        label: allSelectedLocked ? "Desbloquear" : "Bloquear",
         onClick: toggleSelectedLocked,
-        disabled: !selectedElement,
+        disabled: !hasSelection,
       },
-      { icon: Trash2, label: "Eliminar", onClick: removeSelected, disabled: !selectedElement },
+      { icon: Trash2, label: "Eliminar", onClick: removeSelected, disabled: !hasSelection },
       { icon: Download, label: "Exportar", onClick: exportActivePage, disabled: totalElements === 0 },
     ]
     const filteredToolActions = filterSearchItems(toolActions, panelSearchQuery, ["label"])
@@ -1676,7 +1742,7 @@ function EditorApp({
               </div>
             ) : null}
             {filteredLayerItems.map((element) => {
-              const isLayerSelected = selection?.pageId === activePage?.id && selection.elementId === element.id
+              const isLayerSelected = activePage ? selectionIncludesElement(selection, activePage.id, element.id) : false
               const isLayerVisible = element.visible ?? true
 
               return (
@@ -1689,17 +1755,19 @@ function EditorApp({
                   <button
                     type="button"
                     className="min-w-0 flex-1 text-left"
-                    onClick={() => {
+                    onClick={(event) => {
                       if (!activePage) {
                         return
                       }
 
-                      setActivePageId(activePage.id)
-                      setSelection({ pageId: activePage.id, elementId: element.id })
+                      selectElement(activePage.id, element.id, event.shiftKey || event.metaKey)
                     }}
                   >
                     <span className="block truncate font-semibold text-slate-100">{element.name}</span>
-                    <span className="text-xs text-slate-500">{readableType(element)}</span>
+                    <span className="text-xs text-slate-500">
+                      {readableType(element)}
+                      {element.groupId ? " - agrupado" : ""}
+                    </span>
                   </button>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -2533,13 +2601,13 @@ function EditorApp({
                 size="icon-sm"
                 variant="ghost"
                 className="text-slate-300 hover:bg-white/10"
-                aria-label={selectedElement?.locked ? "Desbloquear" : "Bloquear"}
+                aria-label={allSelectedLocked ? "Desbloquear" : "Bloquear"}
                 onClick={toggleSelectedLocked}
-                disabled={!selectedElement}
+                disabled={!hasSelection}
               >
                 <Lock />
               </Button>
-              <Button size="icon-sm" variant="ghost" className="text-slate-300 hover:bg-white/10" aria-label="Duplicar" onClick={duplicateSelected} disabled={!selectedElement}>
+              <Button size="icon-sm" variant="ghost" className="text-slate-300 hover:bg-white/10" aria-label="Duplicar" onClick={duplicateSelected} disabled={!hasSelection}>
                 <CopyPlus />
               </Button>
               <Button size="icon-sm" variant="ghost" className="text-slate-300 hover:bg-white/10" aria-label="Agregar pagina" onClick={addNewPage}>
@@ -2620,15 +2688,32 @@ function EditorApp({
                           <EditableElement
                             key={element.id}
                             element={element}
-                            isSelected={selection?.pageId === page.id && selection.elementId === element.id}
-                            onSelect={() => {
-                              setActivePageId(page.id)
-                              setSelection({ pageId: page.id, elementId: element.id })
-                            }}
+                            isSelected={selectionIncludesElement(selection, page.id, element.id)}
+                            canTransform={!hasMultiSelection}
+                            onSelect={(additive) => selectElement(page.id, element.id, additive)}
                             onChange={(changes) => {
-                              setDocument((currentDocument) =>
-                                updateElement(currentDocument, page.id, element.id, changes),
-                              )
+                              setDocument((currentDocument) => {
+                                const nextX = changes.x
+                                const nextY = changes.y
+                                const shouldMoveSelection =
+                                  selectedElementIds.length > 1 &&
+                                  selectionIncludesElement(selection, page.id, element.id) &&
+                                  nextX !== undefined &&
+                                  nextY !== undefined
+                                const movedDocument = shouldMoveSelection
+                                  ? moveElementsByDelta(
+                                      currentDocument,
+                                      page.id,
+                                      selectedElementIds.filter((selectedId) => selectedId !== element.id),
+                                      {
+                                        x: nextX - element.x,
+                                        y: nextY - element.y,
+                                      },
+                                    )
+                                  : currentDocument
+
+                                return updateElement(movedDocument, page.id, element.id, changes)
+                              })
                             }}
                             onAltDragStart={() => duplicateBehindForAltDrag(page.id, element.id)}
                             onDragMove={(position) => {
@@ -2724,13 +2809,23 @@ function EditorApp({
             <div>
               <h2 className="text-sm font-bold text-white">Inspector</h2>
               <p className="text-xs text-slate-400">
-                {selectedElement ? `${readableType(selectedElement)} seleccionado` : "Selecciona un elemento"}
+                {hasMultiSelection
+                  ? `${selectedElementIds.length} elementos seleccionados`
+                  : selectedElement
+                    ? `${readableType(selectedElement)} seleccionado`
+                    : "Selecciona un elemento"}
               </p>
             </div>
             <div className="flex gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button size="icon-sm" variant="outline" aria-label="Duplicar" onClick={duplicateSelected}>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="Duplicar"
+                    onClick={duplicateSelected}
+                    disabled={!hasSelection}
+                  >
                     <Layers3 />
                   </Button>
                 </TooltipTrigger>
@@ -2738,7 +2833,13 @@ function EditorApp({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button size="icon-sm" variant="outline" aria-label="Eliminar" onClick={removeSelected}>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="Eliminar"
+                    onClick={removeSelected}
+                    disabled={!hasSelection}
+                  >
                     <Trash2 />
                   </Button>
                 </TooltipTrigger>
@@ -2747,7 +2848,69 @@ function EditorApp({
             </div>
           </div>
 
-          {selectedElement ? (
+          {hasMultiSelection ? (
+            <div className="space-y-5">
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4">
+                <p className="text-sm font-semibold text-white">{selectedElementIds.length} capas seleccionadas</p>
+                <p className="pt-1 text-xs text-slate-400">
+                  {selectedElements.map((element) => element.name).join(", ")}
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <Label>Alinear seleccion</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { alignment: "left", icon: AlignHorizontalJustifyStart, label: "Alinear izquierda" },
+                    { alignment: "center", icon: AlignHorizontalJustifyCenter, label: "Alinear centro" },
+                    { alignment: "right", icon: AlignHorizontalJustifyEnd, label: "Alinear derecha" },
+                    { alignment: "top", icon: AlignVerticalJustifyStart, label: "Alinear arriba" },
+                    { alignment: "middle", icon: AlignVerticalJustifyCenter, label: "Alinear medio" },
+                    { alignment: "bottom", icon: AlignVerticalJustifyEnd, label: "Alinear abajo" },
+                  ].map((option) => {
+                    const Icon = option.icon
+
+                    return (
+                      <Button
+                        key={option.alignment}
+                        size="icon-sm"
+                        variant="outline"
+                        aria-label={option.label}
+                        onClick={() => alignSelectedToCanvas(option.alignment as ElementAlignment)}
+                      >
+                        <Icon />
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={groupSelected} disabled={selectedElementIds.length < 2}>
+                  <Layers3 data-icon="inline-start" />
+                  Agrupar
+                </Button>
+                <Button variant="outline" onClick={ungroupSelected} disabled={!selectedElementsHaveGroup}>
+                  <Layers3 data-icon="inline-start" />
+                  Desagrupar
+                </Button>
+                <Button variant="outline" onClick={toggleSelectedLocked}>
+                  <Lock data-icon="inline-start" />
+                  {allSelectedLocked ? "Desbloquear" : "Bloquear"}
+                </Button>
+                <Button variant="outline" onClick={duplicateSelected}>
+                  <BringToFront data-icon="inline-start" />
+                  Duplicar
+                </Button>
+                <Button className="col-span-2" variant="destructive" onClick={removeSelected}>
+                  <Trash2 data-icon="inline-start" />
+                  Eliminar seleccion
+                </Button>
+              </div>
+            </div>
+          ) : selectedElement ? (
             <div className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="element-name">Nombre</Label>

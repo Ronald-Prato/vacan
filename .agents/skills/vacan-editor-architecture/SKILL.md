@@ -34,7 +34,7 @@ surface grows.
 - `src/editor/document.ts`: canonical in-memory document model and operations.
   Rich text defaults, image filter defaults, bounded style/filter updates, and
   image crop/mask plus layer visibility, element alignment/distribution, and
-  legacy normalization belong here, not in React.
+  multi-selection/grouping plus legacy normalization belong here, not in React.
 - `src/editor/projects.ts`: project persistence helpers, summaries, validation,
   autosave fingerprints, save payload shaping, and project version snapshot
   helpers.
@@ -84,7 +84,7 @@ surface grows.
 ## Testing Targets
 
 - Document mutations: id stability, page counts, z-order, visibility, locking,
-  duplicate behavior.
+  duplicate behavior, multi-selection, and grouping.
 - Text helpers: rich style defaults, bounded numeric style values, and legacy
   document normalization.
 - Image helpers: filter defaults, crop defaults, mask defaults, bounded filter
