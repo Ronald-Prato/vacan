@@ -34,6 +34,8 @@ surface grows.
 - `src/editor/document.ts`: canonical in-memory document model and operations.
 - `src/editor/projects.ts`: project persistence helpers, summaries, validation,
   autosave fingerprints, and save payload shaping.
+- `src/editor/assets.ts`: asset metadata helpers. Persist bytes in storage and
+  keep document/table records limited to metadata and URLs.
 - `src/editor/snapping.ts`: guides, alignment, and drag math.
 - `src/editor/templates.ts`: design formats, template definitions, document
   creation from templates, and resize math.
@@ -69,6 +71,8 @@ surface grows.
 - Layout helpers: snapping, resize, positioning, template placement.
 - Project helpers: save payloads, validation, summary counts, autosave change
   detection.
+- Asset helpers: filename normalization, supported image types, local fallback
+  assets, and persisted asset summaries.
 - History helpers: push, undo, redo, replace-current, future invalidation, and
   bounded past length.
 - Search helpers: normalization, accent-insensitive matching, multiple fields,

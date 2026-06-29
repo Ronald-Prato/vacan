@@ -79,6 +79,14 @@ import {
   type ShapeType,
 } from "@/editor/document"
 import {
+  createLocalAsset,
+  isSupportedImageAsset,
+  normalizeAssetName,
+  summarizeAssetRecord,
+  type AssetRecord,
+  type LibraryAsset,
+} from "@/editor/assets"
+import {
   createDocumentFingerprint,
   createProjectSavePayload,
   isEditorDocument,
@@ -127,6 +135,12 @@ type ProjectPersistence = {
   saveProject: (projectId: string | null, document: EditorDocument) => Promise<string | null>
   loadProject: (projectId: string) => Promise<EditorDocument | null>
 }
+type AssetPersistence = {
+  isEnabled: boolean
+  isLoading: boolean
+  assets: LibraryAsset[]
+  uploadAsset: (file: File) => Promise<LibraryAsset>
+}
 type DocumentUpdater = EditorDocument | ((currentDocument: EditorDocument) => EditorDocument)
 
 const colorSwatches = ["#111827", "#ffffff", "#ef4444", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6"]
@@ -143,6 +157,20 @@ const localProjectPersistence: ProjectPersistence = {
   projects: [],
   saveProject: async () => null,
   loadProject: async () => null,
+}
+
+const localAssetPersistence: AssetPersistence = {
+  isEnabled: false,
+  isLoading: false,
+  assets: [],
+  uploadAsset: async (file) =>
+    createLocalAsset({
+      id: createId(),
+      fileName: file.name,
+      src: await fileToDataUrl(file),
+      contentType: file.type || undefined,
+      size: file.size,
+    }),
 }
 
 type ToolId =
@@ -195,16 +223,32 @@ function readableType(element: CanvasElement) {
   return "Forma"
 }
 
-function fileNameWithoutExtension(fileName: string) {
-  return fileName.replace(/\.[^/.]+$/, "") || "Imagen"
-}
-
 function isShapeType(value: string): value is ShapeType {
   return SHAPE_OPTIONS.some((shape) => shape.type === value)
 }
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el archivo"))
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImageSize(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const image = new window.Image()
+
+    image.onload = () => resolve({ width: image.width, height: image.height })
+    image.onerror = () => reject(new Error("No se pudo cargar la imagen"))
+    image.src = src
+  })
 }
 
 function useCanvasImage(src: string) {
@@ -483,7 +527,13 @@ function ToolAction({
   )
 }
 
-function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
+function EditorApp({
+  persistence,
+  assetPersistence,
+}: {
+  persistence: ProjectPersistence
+  assetPersistence: AssetPersistence
+}) {
   const [documentHistory, setDocumentHistory] = useState(() =>
     createHistoryState<EditorDocument>(createInitialDocument(createId)),
   )
@@ -492,7 +542,8 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     persistence.isEnabled ? "saved" : "local",
   )
   const [autosaveError, setAutosaveError] = useState("")
-  const [assets, setAssets] = useState<Asset[]>([])
+  const [assetUploadError, setAssetUploadError] = useState("")
+  const [localAssets, setLocalAssets] = useState<LibraryAsset[]>([])
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
   const [panelSearchQuery, setPanelSearchQuery] = useState("")
@@ -537,6 +588,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const activePage = document.pages.find((page) => page.id === resolvedActivePageId) ?? document.pages[0]
   const selectedElement = useMemo(() => findElement(document, selection), [document, selection])
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
+  const assets = assetPersistence.isEnabled ? assetPersistence.assets : localAssets
   const documentSize = document.size ?? CANVAS_SIZE
   const canvasPreviewWidth = Math.round(documentSize.width * canvasPreviewScale)
   const canvasPreviewHeight = Math.round(documentSize.height * canvasPreviewScale)
@@ -728,34 +780,33 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     setSelection({ pageId, elementId: element.id })
   }
 
-  const addAssetFromFile = (file: File) => {
-    const reader = new FileReader()
+  const addAssetFromFile = async (file: File) => {
+    setAssetUploadError("")
 
-    reader.onload = () => {
-      const src = String(reader.result)
-      const image = new window.Image()
-
-      image.onload = () => {
-        const asset: Asset = {
-          id: createId(),
-          name: fileNameWithoutExtension(file.name),
-          src,
-        }
-
-        setAssets((currentAssets) => [asset, ...currentAssets])
-        addImageAssetToPage(asset, { width: image.width, height: image.height })
+    try {
+      if (file.type && !isSupportedImageAsset(file.type)) {
+        throw new Error("Solo se pueden subir imagenes compatibles.")
       }
 
-      image.src = src
-    }
+      const asset = await assetPersistence.uploadAsset(file)
+      const imageSize = await loadImageSize(asset.src)
 
-    reader.readAsDataURL(file)
+      if (!assetPersistence.isEnabled) {
+        setLocalAssets((currentAssets) => [asset, ...currentAssets])
+      }
+
+      addImageAssetToPage(asset, imageSize)
+    } catch (error) {
+      setAssetUploadError(error instanceof Error ? error.message : "No se pudo subir la imagen")
+    }
   }
 
   const handleUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
 
-    files.forEach(addAssetFromFile)
+    files.forEach((file) => {
+      void addAssetFromFile(file)
+    })
     event.target.value = ""
   }
 
@@ -1166,12 +1217,26 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
             onClick={() => fileInputRef.current?.click()}
           >
             <CloudUpload className="size-7" />
-            <span className="text-sm font-bold">Subir imagenes</span>
+            <span className="text-sm font-bold">
+              {assetPersistence.isEnabled ? "Subir a biblioteca" : "Subir imagenes"}
+            </span>
           </button>
+          {assetUploadError ? (
+            <div className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-100">
+              {assetUploadError}
+            </div>
+          ) : null}
           <div className="grid max-h-[42vh] grid-cols-2 gap-2 overflow-auto pr-1">
+            {assetPersistence.isLoading ? (
+              <div className="col-span-2 rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Cargando biblioteca...
+              </div>
+            ) : null}
             {assets.length === 0 ? (
               <div className="col-span-2 rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
-                Las imagenes que subas apareceran aqui.
+                {assetPersistence.isEnabled
+                  ? "Las imagenes guardadas en Convex apareceran aqui."
+                  : "Las imagenes que subas apareceran aqui."}
               </div>
             ) : null}
             {assets.length > 0 && filteredAssets.length === 0 ? (
@@ -1918,12 +1983,22 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
 function ConvexBackedApp() {
   const convex = useConvex()
   const projectRecords = useQuery(api.projects.list) as ProjectRecord[] | undefined
+  const assetRecords = useQuery(api.assets.list) as AssetRecord[] | undefined
   const createProject = useMutation(api.projects.create)
   const updateProject = useMutation(api.projects.updateCanvas)
+  const generateAssetUploadUrl = useMutation(api.assets.generateUploadUrl)
+  const saveAsset = useMutation(api.assets.save)
 
   const projects = useMemo(
     () => (projectRecords ?? []).map((project) => summarizeProjectRecord(project)),
     [projectRecords],
+  )
+  const assets = useMemo(
+    () =>
+      (assetRecords ?? [])
+        .map((asset) => summarizeAssetRecord(asset))
+        .filter((asset): asset is LibraryAsset => Boolean(asset)),
+    [assetRecords],
   )
 
   const saveProject = useCallback(
@@ -1966,7 +2041,51 @@ function ConvexBackedApp() {
     [loadProject, projectRecords, projects, saveProject],
   )
 
-  return <EditorApp persistence={persistence} />
+  const uploadAsset = useCallback(
+    async (file: File) => {
+      const uploadUrl = await generateAssetUploadUrl()
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: file.type ? { "Content-Type": file.type } : undefined,
+        body: file,
+      })
+
+      if (!response.ok) {
+        throw new Error("No se pudo subir la imagen a Convex Storage")
+      }
+
+      const { storageId } = (await response.json()) as { storageId: string }
+      const assetId = (await saveAsset({
+        name: normalizeAssetName(file.name),
+        storageId: storageId as Id<"_storage">,
+        contentType: file.type || undefined,
+        size: file.size,
+      })) as string
+      const assetRecord = (await convex.query(api.assets.get, {
+        id: assetId as Id<"assets">,
+      })) as AssetRecord | null
+      const asset = assetRecord ? summarizeAssetRecord(assetRecord) : null
+
+      if (!asset) {
+        throw new Error("No se pudo cargar la imagen guardada")
+      }
+
+      return asset
+    },
+    [convex, generateAssetUploadUrl, saveAsset],
+  )
+
+  const assetPersistence = useMemo<AssetPersistence>(
+    () => ({
+      isEnabled: true,
+      isLoading: assetRecords === undefined,
+      assets,
+      uploadAsset,
+    }),
+    [assetRecords, assets, uploadAsset],
+  )
+
+  return <EditorApp persistence={persistence} assetPersistence={assetPersistence} />
 }
 
 function App() {
@@ -1974,7 +2093,7 @@ function App() {
     return <ConvexBackedApp />
   }
 
-  return <EditorApp persistence={localProjectPersistence} />
+  return <EditorApp persistence={localProjectPersistence} assetPersistence={localAssetPersistence} />
 }
 
 export default App
