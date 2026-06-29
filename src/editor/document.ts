@@ -52,6 +52,7 @@ export type BaseElement = {
   height: number
   rotation: number
   opacity: number
+  locked: boolean
 }
 
 export type ImageElement = BaseElement & {
@@ -151,6 +152,7 @@ export function createImageElement({
     height,
     rotation: 0,
     opacity: 1,
+    locked: false,
   }
 }
 
@@ -172,6 +174,7 @@ export function createTextElement(
     height,
     rotation: 0,
     opacity: 1,
+    locked: false,
     fontFamily: "Geist Variable",
     fontSize: 184,
     fill: "#111827",
@@ -203,6 +206,7 @@ export function createShapeElement(
     height,
     rotation: 0,
     opacity: 1,
+    locked: false,
     fill: preset.fill,
     stroke: "#0f172a",
   }
@@ -360,6 +364,98 @@ export function findElement(document: EditorDocument, selection: Selection): Can
 
 export function pageElementCount(document: EditorDocument, pageId: string): number {
   return document.pages.find((page) => page.id === pageId)?.elements.length ?? 0
+}
+
+export function moveElementForward(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): EditorDocument {
+  return moveElementByOffset(document, pageId, elementId, 1)
+}
+
+export function moveElementBackward(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): EditorDocument {
+  return moveElementByOffset(document, pageId, elementId, -1)
+}
+
+export function moveElementToFront(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): EditorDocument {
+  return moveElementToIndex(document, pageId, elementId, Number.POSITIVE_INFINITY)
+}
+
+export function moveElementToBack(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): EditorDocument {
+  return moveElementToIndex(document, pageId, elementId, 0)
+}
+
+export function toggleElementLocked(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): EditorDocument {
+  return updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) =>
+      element.id === elementId ? { ...element, locked: !element.locked } : element,
+    ),
+  }))
+}
+
+function moveElementByOffset(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  offset: -1 | 1,
+): EditorDocument {
+  return updatePage(document, pageId, (page) => {
+    const sourceIndex = page.elements.findIndex((element) => element.id === elementId)
+
+    if (sourceIndex < 0) {
+      return page
+    }
+
+    return moveElementInPage(page, sourceIndex, sourceIndex + offset)
+  })
+}
+
+function moveElementToIndex(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  targetIndex: number,
+): EditorDocument {
+  return updatePage(document, pageId, (page) => {
+    const sourceIndex = page.elements.findIndex((element) => element.id === elementId)
+
+    if (sourceIndex < 0) {
+      return page
+    }
+
+    return moveElementInPage(page, sourceIndex, targetIndex)
+  })
+}
+
+function moveElementInPage(page: Page, sourceIndex: number, targetIndex: number): Page {
+  const elements = [...page.elements]
+  const [element] = elements.splice(sourceIndex, 1)
+  const safeTargetIndex = Math.min(Math.max(targetIndex, 0), elements.length)
+
+  elements.splice(safeTargetIndex, 0, element)
+
+  return {
+    ...page,
+    elements,
+  }
 }
 
 function updatePage(document: EditorDocument, pageId: string, updater: (page: Page) => Page): EditorDocument {

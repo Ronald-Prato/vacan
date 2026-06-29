@@ -15,6 +15,7 @@ function element(overrides: Partial<CanvasElement> & Pick<CanvasElement, "id">):
     height: overrides.height ?? 100,
     rotation: overrides.rotation ?? 0,
     opacity: overrides.opacity ?? 1,
+    locked: overrides.locked ?? false,
     fill: "#000000",
     stroke: "#ffffff",
   }

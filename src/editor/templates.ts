@@ -220,6 +220,7 @@ function shape(
     height: Math.round(height),
     rotation: 0,
     opacity: 1,
+    locked: false,
     fill,
     stroke: "transparent",
   }
@@ -247,6 +248,7 @@ function text(
     height: Math.round(height),
     rotation: 0,
     opacity: 1,
+    locked: false,
     fontFamily: "Geist Variable",
     fontSize,
     fill,

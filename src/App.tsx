@@ -64,6 +64,11 @@ import {
   duplicateElementBehind,
   findElement,
   insertPageAfter,
+  moveElementBackward,
+  moveElementForward,
+  moveElementToBack,
+  moveElementToFront,
+  toggleElementLocked,
   updateElement,
   type Asset,
   type CanvasElement,
@@ -303,6 +308,10 @@ function EditableElement({
   }, [isSelected, element])
 
   const handleTransformEnd = () => {
+    if (element.locked) {
+      return
+    }
+
     const node = groupRef.current
 
     if (!node) {
@@ -333,7 +342,7 @@ function EditableElement({
         width={element.width}
         height={element.height}
         rotation={element.rotation}
-        draggable
+        draggable={!element.locked}
         onClick={onSelect}
         onTap={onSelect}
         onDblClick={() => {
@@ -384,7 +393,7 @@ function EditableElement({
           />
         ) : null}
       </KonvaGroup>
-      {isSelected ? (
+      {isSelected && !element.locked ? (
         <Transformer
           ref={transformerRef}
           rotateEnabled
@@ -822,6 +831,56 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     })
   }
 
+  const moveSelectedForward = () => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      moveElementForward(currentDocument, selection.pageId, selection.elementId),
+    )
+  }
+
+  const moveSelectedBackward = () => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      moveElementBackward(currentDocument, selection.pageId, selection.elementId),
+    )
+  }
+
+  const moveSelectedToFront = () => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      moveElementToFront(currentDocument, selection.pageId, selection.elementId),
+    )
+  }
+
+  const moveSelectedToBack = () => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      moveElementToBack(currentDocument, selection.pageId, selection.elementId),
+    )
+  }
+
+  const toggleSelectedLocked = () => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      toggleElementLocked(currentDocument, selection.pageId, selection.elementId),
+    )
+  }
+
   const duplicateBehindForAltDrag = (pageId: string, elementId: string) => {
     const dragKey = `${pageId}:${elementId}`
 
@@ -1106,6 +1165,16 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
           <div className="grid grid-cols-2 gap-2">
             <ToolAction icon={MousePointer2} label="Seleccionar" onClick={() => setSelection(null)} />
             <ToolAction icon={Layers3} label="Duplicar" onClick={duplicateSelected} disabled={!selectedElement} />
+            <ToolAction icon={BringToFront} label="Al frente" onClick={moveSelectedToFront} disabled={!selectedElement} />
+            <ToolAction icon={Layers3} label="Adelante" onClick={moveSelectedForward} disabled={!selectedElement} />
+            <ToolAction icon={Layers3} label="Atras" onClick={moveSelectedBackward} disabled={!selectedElement} />
+            <ToolAction icon={Layers3} label="Al fondo" onClick={moveSelectedToBack} disabled={!selectedElement} />
+            <ToolAction
+              icon={Lock}
+              label={selectedElement?.locked ? "Desbloquear" : "Bloquear"}
+              onClick={toggleSelectedLocked}
+              disabled={!selectedElement}
+            />
             <ToolAction icon={Trash2} label="Eliminar" onClick={removeSelected} disabled={!selectedElement} />
             <ToolAction icon={Download} label="Exportar" onClick={exportActivePage} disabled={totalElements === 0} />
           </div>
@@ -1299,7 +1368,14 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
               <span>{totalElements} elementos</span>
             </div>
             <div className="flex items-center gap-1 text-slate-300">
-              <Button size="icon-sm" variant="ghost" className="text-slate-300 hover:bg-white/10" aria-label="Bloquear">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-slate-300 hover:bg-white/10"
+                aria-label={selectedElement?.locked ? "Desbloquear" : "Bloquear"}
+                onClick={toggleSelectedLocked}
+                disabled={!selectedElement}
+              >
                 <Lock />
               </Button>
               <Button size="icon-sm" variant="ghost" className="text-slate-300 hover:bg-white/10" aria-label="Duplicar" onClick={duplicateSelected} disabled={!selectedElement}>

@@ -12,7 +12,12 @@ import {
   duplicateElement,
   duplicateElementBehind,
   findElement,
+  moveElementBackward,
+  moveElementForward,
+  moveElementToBack,
+  moveElementToFront,
   pageElementCount,
+  toggleElementLocked,
   updateElement,
   type Asset,
 } from "./document"
@@ -132,5 +137,61 @@ describe("editor document model", () => {
 
     expect(pageElementCount(deleted, pageId)).toBe(0)
     expect(findElement(deleted, { pageId, elementId: text.id })).toBeNull()
+  })
+
+  it("moves elements through the layer stack", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const third = createShapeElement("triangle", nextId)
+    const withElements = [first, second, third].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    const movedForward = moveElementForward(withElements, pageId, first.id)
+    expect(movedForward.pages[0].elements.map((element) => element.id)).toEqual([
+      second.id,
+      first.id,
+      third.id,
+    ])
+
+    const movedToFront = moveElementToFront(movedForward, pageId, first.id)
+    expect(movedToFront.pages[0].elements.map((element) => element.id)).toEqual([
+      second.id,
+      third.id,
+      first.id,
+    ])
+
+    const movedBackward = moveElementBackward(movedToFront, pageId, first.id)
+    expect(movedBackward.pages[0].elements.map((element) => element.id)).toEqual([
+      second.id,
+      first.id,
+      third.id,
+    ])
+
+    const movedToBack = moveElementToBack(movedBackward, pageId, third.id)
+    expect(movedToBack.pages[0].elements.map((element) => element.id)).toEqual([
+      third.id,
+      second.id,
+      first.id,
+    ])
+  })
+
+  it("toggles element locking without changing its layer position", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = createShapeElement("rect", nextId)
+    const withShape = addElementToPage(document, pageId, shape)
+
+    const locked = toggleElementLocked(withShape, pageId, shape.id)
+    const unlocked = toggleElementLocked(locked, pageId, shape.id)
+
+    expect(findElement(locked, { pageId, elementId: shape.id })).toMatchObject({ locked: true })
+    expect(findElement(unlocked, { pageId, elementId: shape.id })).toMatchObject({ locked: false })
+    expect(unlocked.pages[0].elements.map((element) => element.id)).toEqual([shape.id])
   })
 })
