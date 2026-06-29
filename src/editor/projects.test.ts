@@ -4,7 +4,10 @@ import { addElementToPage, createInitialDocument, createShapeElement } from "./d
 import {
   createDocumentFingerprint,
   createProjectSavePayload,
+  createProjectVersionDraft,
+  createProjectVersionDocument,
   isEditorDocument,
+  summarizeProjectVersionRecord,
   summarizeProjectRecord,
 } from "./projects"
 
@@ -64,5 +67,67 @@ describe("project persistence helpers", () => {
 
     expect(createDocumentFingerprint(document)).toBe(createDocumentFingerprint(sameDocument))
     expect(createDocumentFingerprint(document)).not.toBe(createDocumentFingerprint(changedDocument))
+  })
+
+  it("creates version drafts as immutable canvas snapshots", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = createShapeElement("rect", nextId)
+    const withShape = addElementToPage(document, pageId, shape)
+
+    const draft = createProjectVersionDraft({
+      projectId: "project-1",
+      document: withShape,
+      label: "  Revision inicial  ",
+      createdAt: 123,
+    })
+
+    withShape.pages[0].elements[0].x = 999
+
+    expect(draft).toMatchObject({
+      projectId: "project-1",
+      label: "Revision inicial",
+      pageCount: 1,
+      elementCount: 1,
+      createdAt: 123,
+    })
+    expect(draft.canvas.pages[0].elements[0].x).not.toBe(999)
+  })
+
+  it("summarizes project version records without requiring full canvas data", () => {
+    expect(
+      summarizeProjectVersionRecord({
+        _id: "version-1",
+        projectId: "project-1",
+        label: "Antes del flyer",
+        createdAt: 456,
+        pageCount: 2,
+        elementCount: 9,
+      }),
+    ).toEqual({
+      id: "version-1",
+      projectId: "project-1",
+      label: "Antes del flyer",
+      createdAt: 456,
+      pageCount: 2,
+      elementCount: 9,
+    })
+  })
+
+  it("restores project versions as editable document copies", () => {
+    const document = createInitialDocument(idSequence())
+    const version = createProjectVersionDraft({
+      projectId: "project-1",
+      document,
+      label: "",
+      createdAt: 789,
+    })
+    const restored = createProjectVersionDocument({ _id: "version-1", ...version })
+
+    restored.pages[0].name = "Restaurada"
+
+    expect(restored.name).toBe(document.name)
+    expect(version.canvas.pages[0].name).toBe("Pagina 1")
   })
 })

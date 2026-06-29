@@ -36,7 +36,8 @@ surface grows.
   image crop/mask plus element alignment/distribution and legacy normalization
   belong here, not in React.
 - `src/editor/projects.ts`: project persistence helpers, summaries, validation,
-  autosave fingerprints, and save payload shaping.
+  autosave fingerprints, save payload shaping, and project version snapshot
+  helpers.
 - `src/editor/assets.ts`: asset metadata helpers. Persist bytes in storage and
   keep document/table records limited to metadata and URLs.
 - `src/editor/snapping.ts`: drag-time guides and snap math.
@@ -62,6 +63,8 @@ surface grows.
   only for explicit open/edit flows.
 - Shared templates should list lightweight summaries and fetch full canvas data
   only when the user applies one.
+- Project versions should live in a dedicated table indexed by project, list
+  bounded summaries, and fetch full canvas snapshots only when restoring.
 - All public Convex functions need validators.
 - Keep high-churn collaboration or presence state separate from stable project
   documents when collaboration is introduced.
@@ -88,7 +91,7 @@ surface grows.
 - Template helpers: publish drafts, clone documents, and rekey pages/elements
   when instantiating shared templates.
 - Project helpers: save payloads, validation, summary counts, autosave change
-  detection.
+  detection, immutable version snapshots, and restore copies.
 - Asset helpers: filename normalization, supported image types, local fallback
   assets, and persisted asset summaries.
 - History helpers: push, undo, redo, replace-current, future invalidation, and

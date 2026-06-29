@@ -115,10 +115,15 @@ import {
 } from "@/editor/assets"
 import {
   createDocumentFingerprint,
+  createProjectVersionDocument,
+  createProjectVersionDraft,
   createProjectSavePayload,
   isEditorDocument,
+  summarizeProjectVersionRecord,
   summarizeProjectRecord,
+  type ProjectVersionRecord,
   type ProjectRecord,
+  type SavedProjectVersion,
   type SavedProject,
 } from "@/editor/projects"
 import {
@@ -181,6 +186,14 @@ type ProjectPersistence = {
   saveProject: (projectId: string | null, document: EditorDocument) => Promise<string | null>
   loadProject: (projectId: string) => Promise<EditorDocument | null>
 }
+type ProjectVersionPersistence = {
+  isEnabled: boolean
+  isLoading: boolean
+  versions: SavedProjectVersion[]
+  selectProject: (projectId: string | null) => void
+  saveVersion: (draft: ReturnType<typeof createProjectVersionDraft>) => Promise<void>
+  loadVersion: (versionId: string) => Promise<ProjectVersionRecord | null>
+}
 type AssetPersistence = {
   isEnabled: boolean
   isLoading: boolean
@@ -215,6 +228,15 @@ const localProjectPersistence: ProjectPersistence = {
   projects: [],
   saveProject: async () => null,
   loadProject: async () => null,
+}
+
+const localProjectVersionPersistence: ProjectVersionPersistence = {
+  isEnabled: false,
+  isLoading: false,
+  versions: [],
+  selectProject: () => undefined,
+  saveVersion: async () => undefined,
+  loadVersion: async () => null,
 }
 
 const localAssetPersistence: AssetPersistence = {
@@ -678,11 +700,13 @@ function ToolAction({
 
 function EditorApp({
   persistence,
+  versionPersistence,
   assetPersistence,
   commentPersistence,
   sharedTemplatePersistence,
 }: {
   persistence: ProjectPersistence
+  versionPersistence: ProjectVersionPersistence
   assetPersistence: AssetPersistence
   commentPersistence: CommentPersistence
   sharedTemplatePersistence: SharedTemplatePersistence
@@ -695,6 +719,8 @@ function EditorApp({
     persistence.isEnabled ? "saved" : "local",
   )
   const [autosaveError, setAutosaveError] = useState("")
+  const [versionLabel, setVersionLabel] = useState("")
+  const [versionStatus, setVersionStatus] = useState("")
   const [assetUploadError, setAssetUploadError] = useState("")
   const [comments, setComments] = useState<EditorComment[]>([])
   const [commentsLoading, setCommentsLoading] = useState(false)
@@ -791,6 +817,10 @@ function EditorApp({
   useEffect(() => {
     setPanelSearchQuery("")
   }, [activeTool])
+
+  useEffect(() => {
+    versionPersistence.selectProject(currentProjectId)
+  }, [currentProjectId, versionPersistence])
 
   useEffect(() => {
     void refreshComments()
@@ -934,6 +964,69 @@ function EditorApp({
       }
     },
     [persistence, replaceDocumentHistory],
+  )
+
+  const saveCurrentVersion = useCallback(async () => {
+    if (!versionPersistence.isEnabled) {
+      setVersionStatus("Conecta Convex para guardar versiones.")
+      return
+    }
+
+    try {
+      let projectId = currentProjectId
+
+      if (!projectId) {
+        projectId = await persistence.saveProject(null, document)
+
+        if (projectId) {
+          setCurrentProjectId(projectId)
+          lastSavedFingerprintRef.current = createDocumentFingerprint(document)
+          setAutosaveStatus("saved")
+        }
+      }
+
+      if (!projectId) {
+        throw new Error("Guarda el proyecto antes de crear una version.")
+      }
+
+      await versionPersistence.saveVersion(
+        createProjectVersionDraft({
+          projectId,
+          document,
+          label: versionLabel,
+        }),
+      )
+      setVersionLabel("")
+      setVersionStatus("Version guardada.")
+    } catch (error) {
+      setVersionStatus(error instanceof Error ? error.message : "No se pudo guardar la version.")
+    }
+  }, [currentProjectId, document, persistence, versionLabel, versionPersistence])
+
+  const restoreProjectVersion = useCallback(
+    async (versionId: string) => {
+      if (!versionPersistence.isEnabled) {
+        return
+      }
+
+      try {
+        const version = await versionPersistence.loadVersion(versionId)
+        const restoredDocument = version ? createProjectVersionDocument(version) : null
+
+        if (!restoredDocument) {
+          throw new Error("La version no tiene un canvas valido.")
+        }
+
+        replaceDocumentHistory(restoredDocument)
+        setActivePageId(restoredDocument.pages[0]?.id ?? null)
+        setSelection(null)
+        setAutosaveStatus(persistence.isEnabled ? "saving" : "local")
+        setVersionStatus("Version restaurada.")
+      } catch (error) {
+        setVersionStatus(error instanceof Error ? error.message : "No se pudo restaurar la version.")
+      }
+    },
+    [persistence.isEnabled, replaceDocumentHistory, versionPersistence],
   )
 
   const startNewProject = useCallback(() => {
@@ -1662,6 +1755,52 @@ function EditorApp({
               {autosaveError}
             </div>
           ) : null}
+          <section className="space-y-2 rounded-md border border-white/10 bg-[#20222b] p-3">
+            <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Versiones</h3>
+            <Input
+              value={versionLabel}
+              placeholder="Nombre de version"
+              onChange={(event) => setVersionLabel(event.target.value)}
+              disabled={!versionPersistence.isEnabled}
+            />
+            <Button
+              type="button"
+              className="w-full"
+              onClick={saveCurrentVersion}
+              disabled={!versionPersistence.isEnabled}
+            >
+              <Clock data-icon="inline-start" />
+              Guardar version
+            </Button>
+            {versionStatus ? <p className="text-xs leading-5 text-slate-400">{versionStatus}</p> : null}
+            {!versionPersistence.isEnabled ? (
+              <p className="text-xs leading-5 text-slate-500">Convex no esta conectado.</p>
+            ) : null}
+            {versionPersistence.isLoading ? (
+              <p className="text-xs leading-5 text-slate-500">Cargando versiones...</p>
+            ) : null}
+            {!versionPersistence.isLoading && versionPersistence.versions.length === 0 ? (
+              <p className="text-xs leading-5 text-slate-500">Todavia no hay versiones guardadas.</p>
+            ) : null}
+            <div className="grid gap-2">
+              {versionPersistence.versions.map((version) => (
+                <button
+                  key={version.id}
+                  type="button"
+                  className="rounded-md border border-white/10 bg-[#171922] p-3 text-left transition hover:border-[#00c4cc]"
+                  onClick={() => void restoreProjectVersion(version.id)}
+                >
+                  <span className="block truncate text-sm font-semibold text-white">{version.label}</span>
+                  <span className="block text-xs text-slate-400">
+                    {version.pageCount} paginas - {version.elementCount} elementos
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    {new Date(version.createdAt).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
           <div className="space-y-2">
             {persistence.isLoading ? (
               <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
@@ -2823,6 +2962,11 @@ function ConvexBackedApp() {
   const convex = useConvex()
   const projectRecords = useQuery(api.projects.list) as ProjectRecord[] | undefined
   const assetRecords = useQuery(api.assets.list) as AssetRecord[] | undefined
+  const [activeVersionProjectId, setActiveVersionProjectId] = useState<string | null>(null)
+  const versionRecords = useQuery(
+    api.projectVersions.list,
+    activeVersionProjectId ? { projectId: activeVersionProjectId as Id<"projects"> } : "skip",
+  ) as ProjectVersionRecord[] | undefined
   const sharedTemplateRecords = useQuery(api.sharedTemplates.list) as
     | (Omit<SharedTemplateSummary, "id"> & { _id: string })[]
     | undefined
@@ -2831,6 +2975,7 @@ function ConvexBackedApp() {
   const generateAssetUploadUrl = useMutation(api.assets.generateUploadUrl)
   const saveAsset = useMutation(api.assets.save)
   const createComment = useMutation(api.comments.create)
+  const createProjectVersion = useMutation(api.projectVersions.create)
   const createSharedTemplate = useMutation(api.sharedTemplates.create)
 
   const projects = useMemo(
@@ -2856,6 +3001,10 @@ function ConvexBackedApp() {
         createdAt: template.createdAt,
       })),
     [sharedTemplateRecords],
+  )
+  const versions = useMemo(
+    () => (versionRecords ?? []).map((version) => summarizeProjectVersionRecord(version)),
+    [versionRecords],
   )
 
   const saveProject = useCallback(
@@ -2896,6 +3045,29 @@ function ConvexBackedApp() {
       loadProject,
     }),
     [loadProject, projectRecords, projects, saveProject],
+  )
+
+  const versionPersistence = useMemo<ProjectVersionPersistence>(
+    () => ({
+      isEnabled: true,
+      isLoading: activeVersionProjectId !== null && versionRecords === undefined,
+      versions,
+      selectProject: setActiveVersionProjectId,
+      saveVersion: async (draft) => {
+        await createProjectVersion({
+          projectId: draft.projectId as Id<"projects">,
+          label: draft.label,
+          canvas: draft.canvas,
+        })
+        setActiveVersionProjectId(draft.projectId)
+      },
+      loadVersion: async (versionId) => {
+        return (await convex.query(api.projectVersions.get, {
+          id: versionId as Id<"projectVersions">,
+        })) as ProjectVersionRecord | null
+      },
+    }),
+    [activeVersionProjectId, convex, createProjectVersion, versionRecords, versions],
   )
 
   const uploadAsset = useCallback(
@@ -3013,6 +3185,7 @@ function ConvexBackedApp() {
   return (
     <EditorApp
       persistence={persistence}
+      versionPersistence={versionPersistence}
       assetPersistence={assetPersistence}
       commentPersistence={commentPersistence}
       sharedTemplatePersistence={sharedTemplatePersistence}
@@ -3028,6 +3201,7 @@ function App() {
   return (
     <EditorApp
       persistence={localProjectPersistence}
+      versionPersistence={localProjectVersionPersistence}
       assetPersistence={localAssetPersistence}
       commentPersistence={localCommentPersistence}
       sharedTemplatePersistence={localSharedTemplatePersistence}

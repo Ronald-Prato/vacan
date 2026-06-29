@@ -7,6 +7,14 @@ export default defineSchema({
     canvas: v.any(),
     updatedAt: v.number(),
   }),
+  projectVersions: defineTable({
+    projectId: v.id("projects"),
+    label: v.string(),
+    canvas: v.any(),
+    pageCount: v.number(),
+    elementCount: v.number(),
+    createdAt: v.number(),
+  }).index("by_projectId_and_createdAt", ["projectId", "createdAt"]),
   assets: defineTable({
     name: v.string(),
     storageId: v.id("_storage"),
