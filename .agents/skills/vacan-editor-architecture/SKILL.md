@@ -47,6 +47,8 @@ surface grows.
   and framework-light, then wire it from React.
 - `src/editor/search.ts`: shared accent-insensitive search/filter helpers for
   templates, assets, projects, tools, and future libraries.
+- `src/editor/dashboard.ts`: workspace stats and recent-item helpers for the
+  product entry surface.
 - `src/editor/export.ts`: export formats, filenames, MIME types, and quality
   defaults. Keep browser/PDF rendering in UI adapters.
 - `src/editor/comments.ts`: comment draft/target/summary helpers. Keep
@@ -99,6 +101,8 @@ surface grows.
   bounded past length.
 - Search helpers: normalization, accent-insensitive matching, multiple fields,
   and custom accessors.
+- Dashboard helpers: workspace counts, recent project ordering, and entry
+  surface summaries.
 - Export helpers: file type, page selection, scaling, transparency options.
   Use dynamic imports for heavy PDF/export dependencies.
 - Comment helpers: draft normalization, target descriptions, and record

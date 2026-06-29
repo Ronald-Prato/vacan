@@ -144,6 +144,7 @@ import {
   type CommentRecord,
   type EditorComment,
 } from "@/editor/comments"
+import { createWorkspaceStats, listRecentProjects } from "@/editor/dashboard"
 import { filterSearchItems } from "@/editor/search"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
 import {
@@ -742,6 +743,7 @@ function EditorApp({
   const [sharedTemplateAuthor, setSharedTemplateAuthor] = useState("Equipo")
   const [sharedTemplateStatus, setSharedTemplateStatus] = useState("")
   const [localAssets, setLocalAssets] = useState<LibraryAsset[]>([])
+  const [workspaceView, setWorkspaceView] = useState<"home" | "editor">("home")
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
   const [panelSearchQuery, setPanelSearchQuery] = useState("")
@@ -808,6 +810,17 @@ function EditorApp({
   const selectedTextElement = selectedElement?.type === "text" ? normalizeTextElement(selectedElement) : null
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
   const assets = assetPersistence.isEnabled ? assetPersistence.assets : localAssets
+  const recentProjects = useMemo(() => listRecentProjects(persistence.projects, 4), [persistence.projects])
+  const workspaceStats = useMemo(
+    () =>
+      createWorkspaceStats({
+        projects: persistence.projects,
+        assets,
+        sharedTemplates: sharedTemplatePersistence.templates,
+        builtInTemplateCount: DESIGN_TEMPLATES.length,
+      }),
+    [assets, persistence.projects, sharedTemplatePersistence.templates],
+  )
   const documentSize = document.size ?? CANVAS_SIZE
   const canvasPreviewWidth = Math.round(documentSize.width * canvasPreviewScale)
   const canvasPreviewHeight = Math.round(documentSize.height * canvasPreviewScale)
@@ -966,6 +979,7 @@ function EditorApp({
         setCurrentProjectId(projectId)
         setActivePageId(loadedDocument.pages[0]?.id ?? null)
         setSelection(null)
+        setWorkspaceView("editor")
         lastSavedFingerprintRef.current = createDocumentFingerprint(loadedDocument)
         setAutosaveStatus("saved")
       } catch (error) {
@@ -1046,6 +1060,7 @@ function EditorApp({
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
+    setWorkspaceView("editor")
     lastSavedFingerprintRef.current = createDocumentFingerprint(nextDocument)
     setAutosaveError("")
     setAutosaveStatus(persistence.isEnabled ? "saved" : "local")
@@ -1478,6 +1493,7 @@ function EditorApp({
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
+    setWorkspaceView("editor")
     setAutosaveError("")
   }
 
@@ -1488,6 +1504,7 @@ function EditorApp({
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
+    setWorkspaceView("editor")
     lastSavedFingerprintRef.current = createDocumentFingerprint(nextDocument)
     setAutosaveError("")
     setAutosaveStatus(persistence.isEnabled ? "saved" : "local")
@@ -1534,6 +1551,7 @@ function EditorApp({
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
+    setWorkspaceView("editor")
     setSharedTemplateStatus("")
   }
 
@@ -2222,6 +2240,134 @@ function EditorApp({
     )
   }
 
+  if (workspaceView === "home") {
+    return (
+      <main className="min-h-screen bg-[#0d0e14] text-slate-100">
+        <header className="flex h-16 items-center justify-between border-b border-white/10 bg-[#171922] px-4">
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-white">Vacan</h1>
+            <p className="text-xs text-slate-400">{workspaceStats.projectCount} proyectos guardados</p>
+          </div>
+          <Button className="bg-white text-slate-950 hover:bg-slate-100" onClick={() => setWorkspaceView("editor")}>
+            <PenLine data-icon="inline-start" />
+            Abrir editor
+          </Button>
+        </header>
+
+        <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-4">
+              {[
+                { label: "Proyectos", value: workspaceStats.projectCount, icon: Folder },
+                { label: "Paginas", value: workspaceStats.totalPageCount, icon: Grid2x2 },
+                { label: "Assets", value: workspaceStats.assetCount, icon: ImageIcon },
+                { label: "Plantillas", value: workspaceStats.templateCount, icon: LayoutTemplate },
+              ].map((item) => {
+                const Icon = item.icon
+
+                return (
+                  <article key={item.label} className="rounded-md border border-white/10 bg-[#171922] p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        {item.label}
+                      </span>
+                      <Icon className="size-4 text-[#00c4cc]" />
+                    </div>
+                    <strong className="text-2xl text-white">{item.value}</strong>
+                  </article>
+                )
+              })}
+            </div>
+
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold text-white">Recientes</h2>
+                <Button size="sm" variant="outline" onClick={startNewProject}>
+                  <Plus data-icon="inline-start" />
+                  Nuevo
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {recentProjects.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-white/15 bg-[#171922] p-5 text-sm text-slate-400">
+                    No hay proyectos guardados.
+                  </div>
+                ) : null}
+                {recentProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className="rounded-md border border-white/10 bg-[#171922] p-4 text-left transition hover:border-[#00c4cc]"
+                    onClick={() => void openProject(project.id)}
+                  >
+                    <span className="block truncate text-sm font-semibold text-white">{project.name}</span>
+                    <span className="block pt-2 text-xs text-slate-400">
+                      {project.pageCount} paginas - {project.elementCount} elementos
+                    </span>
+                    <span className="block pt-1 text-xs text-slate-500">
+                      {new Date(project.updatedAt).toLocaleDateString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-bold text-white">Crear por formato</h2>
+              <div className="grid gap-3 md:grid-cols-4">
+                {DESIGN_FORMATS.map((format) => (
+                  <button
+                    key={format.id}
+                    type="button"
+                    className="rounded-md border border-white/10 bg-[#171922] p-4 text-left transition hover:border-[#8b5cf6]"
+                    onClick={() => createBlankFormat(format.id)}
+                  >
+                    <span className="block text-sm font-semibold text-white">{format.name}</span>
+                    <span className="block pt-2 text-xs text-slate-400">
+                      {format.size.width} x {format.size.height}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </section>
+
+          <aside className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-white">Plantillas</h2>
+              <Badge className="border-white/10 bg-white/8 text-slate-200">{workspaceStats.templateCount}</Badge>
+            </div>
+            <div className="grid gap-3">
+              {DESIGN_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className="overflow-hidden rounded-md border border-white/10 bg-[#171922] text-left transition hover:border-[#8b5cf6]"
+                  onClick={() => applyTemplate(template.id)}
+                >
+                  <span className={`block h-20 bg-gradient-to-br ${template.accent}`} />
+                  <span className="block px-3 pt-2 text-sm font-semibold text-white">{template.name}</span>
+                  <span className="block px-3 pb-3 pt-1 text-xs text-slate-400">{template.description}</span>
+                </button>
+              ))}
+              {sharedTemplatePersistence.templates.slice(0, 3).map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className="rounded-md border border-white/10 bg-[#171922] p-3 text-left transition hover:border-[#00c4cc]"
+                  onClick={() => void applySharedTemplate(template.id)}
+                >
+                  <span className="block truncate text-sm font-semibold text-white">{template.name}</span>
+                  <span className="block pt-1 text-xs text-slate-400">{template.authorName}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-[#0d0e14] text-slate-100">
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 bg-gradient-to-r from-[#00c4cc] via-[#3b82f6] to-[#7c3aed] px-3 text-white shadow-[0_1px_0_rgba(255,255,255,0.16)]">
@@ -2236,7 +2382,13 @@ function EditorApp({
         <div className="flex min-w-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon-lg" variant="ghost" className="text-white hover:bg-white/15" aria-label="Inicio">
+              <Button
+                size="icon-lg"
+                variant="ghost"
+                className="text-white hover:bg-white/15"
+                aria-label="Inicio"
+                onClick={() => setWorkspaceView("home")}
+              >
                 <Home />
               </Button>
             </TooltipTrigger>
