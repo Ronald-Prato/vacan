@@ -53,6 +53,8 @@ surface grows.
   defaults. Keep browser/PDF rendering in UI adapters.
 - `src/editor/comments.ts`: comment draft/target/summary helpers. Keep
   collaborative metadata out of project canvas documents.
+- `src/editor/sharing.ts`: project share permissions, token drafts, URLs, and
+  share summaries. Keep access-link metadata out of project canvas documents.
 - `src/App.tsx`: UI composition and injected adapters. Avoid adding business
   logic here if it can be tested in `src/editor`.
 - `convex/*.ts`: backend storage and query/mutation/action boundaries.
@@ -67,6 +69,8 @@ surface grows.
   only when the user applies one.
 - Project versions should live in a dedicated table indexed by project, list
   bounded summaries, and fetch full canvas snapshots only when restoring.
+- Project share links should live in a dedicated table indexed by project and
+  token, with bounded project link lists and revocation instead of deletion.
 - All public Convex functions need validators.
 - Keep high-churn collaboration or presence state separate from stable project
   documents when collaboration is introduced.
@@ -107,3 +111,5 @@ surface grows.
   Use dynamic imports for heavy PDF/export dependencies.
 - Comment helpers: draft normalization, target descriptions, and record
   summaries.
+- Sharing helpers: access validation, token creation, URL creation, active state,
+  and record summaries.

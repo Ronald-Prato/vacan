@@ -41,6 +41,7 @@ import {
   PenLine,
   Plus,
   Search,
+  Share2,
   Shapes,
   SquarePlus,
   StickyNote,
@@ -155,6 +156,14 @@ import {
   type EditorComment,
 } from "@/editor/comments"
 import { createWorkspaceStats, listRecentProjects } from "@/editor/dashboard"
+import {
+  SHARE_ACCESS_OPTIONS,
+  createProjectShareDraft,
+  summarizeProjectShareRecord,
+  type ProjectShareRecord,
+  type SavedProjectShare,
+  type ShareAccess,
+} from "@/editor/sharing"
 import { filterSearchItems } from "@/editor/search"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
 import {
@@ -219,6 +228,14 @@ type CommentPersistence = {
   listComments: (projectId: string) => Promise<EditorComment[]>
   createComment: (projectId: string, comment: CommentDraft) => Promise<void>
 }
+type SharePersistence = {
+  isEnabled: boolean
+  isLoading: boolean
+  shares: SavedProjectShare[]
+  selectProject: (projectId: string | null) => void
+  createShare: (draft: ReturnType<typeof createProjectShareDraft>) => Promise<void>
+  revokeShare: (shareId: string) => Promise<void>
+}
 type SharedTemplatePersistence = {
   isEnabled: boolean
   isLoading: boolean
@@ -271,6 +288,15 @@ const localCommentPersistence: CommentPersistence = {
   isEnabled: false,
   listComments: async () => [],
   createComment: async () => undefined,
+}
+
+const localSharePersistence: SharePersistence = {
+  isEnabled: false,
+  isLoading: false,
+  shares: [],
+  selectProject: () => undefined,
+  createShare: async () => undefined,
+  revokeShare: async () => undefined,
 }
 
 const localSharedTemplatePersistence: SharedTemplatePersistence = {
@@ -736,12 +762,14 @@ function EditorApp({
   versionPersistence,
   assetPersistence,
   commentPersistence,
+  sharePersistence,
   sharedTemplatePersistence,
 }: {
   persistence: ProjectPersistence
   versionPersistence: ProjectVersionPersistence
   assetPersistence: AssetPersistence
   commentPersistence: CommentPersistence
+  sharePersistence: SharePersistence
   sharedTemplatePersistence: SharedTemplatePersistence
 }) {
   const [documentHistory, setDocumentHistory] = useState(() =>
@@ -760,6 +788,8 @@ function EditorApp({
   const [commentBody, setCommentBody] = useState("")
   const [commentAuthor, setCommentAuthor] = useState("Colaborador")
   const [commentError, setCommentError] = useState("")
+  const [shareAccess, setShareAccess] = useState<ShareAccess>("comment")
+  const [shareStatus, setShareStatus] = useState("")
   const [sharedTemplateName, setSharedTemplateName] = useState("")
   const [sharedTemplateDescription, setSharedTemplateDescription] = useState("")
   const [sharedTemplateAuthor, setSharedTemplateAuthor] = useState("Equipo")
@@ -875,6 +905,10 @@ function EditorApp({
   useEffect(() => {
     versionPersistence.selectProject(currentProjectId)
   }, [currentProjectId, versionPersistence])
+
+  useEffect(() => {
+    sharePersistence.selectProject(currentProjectId)
+  }, [currentProjectId, sharePersistence])
 
   useEffect(() => {
     void refreshComments()
@@ -1083,6 +1117,51 @@ function EditorApp({
     },
     [persistence.isEnabled, replaceDocumentHistory, versionPersistence],
   )
+
+  const createShareLink = async () => {
+    if (!sharePersistence.isEnabled) {
+      setShareStatus("Convex no esta conectado.")
+      return
+    }
+
+    let projectId = currentProjectId
+
+    try {
+      if (!projectId) {
+        projectId = await persistence.saveProject(null, document)
+
+        if (!projectId) {
+          throw new Error("Guarda el proyecto antes de compartirlo.")
+        }
+
+        setCurrentProjectId(projectId)
+      }
+
+      await sharePersistence.createShare(
+        createProjectShareDraft({
+          projectId,
+          access: shareAccess,
+        }),
+      )
+      sharePersistence.selectProject(projectId)
+      setShareStatus("Link creado.")
+    } catch (error) {
+      setShareStatus(error instanceof Error ? error.message : "No se pudo crear el link.")
+    }
+  }
+
+  const revokeShareLink = async (shareId: string) => {
+    if (!sharePersistence.isEnabled) {
+      return
+    }
+
+    try {
+      await sharePersistence.revokeShare(shareId)
+      setShareStatus("Link revocado.")
+    } catch (error) {
+      setShareStatus(error instanceof Error ? error.message : "No se pudo revocar el link.")
+    }
+  }
 
   const startNewProject = useCallback(() => {
     const nextDocument = createInitialDocument(createId)
@@ -1983,6 +2062,84 @@ function EditorApp({
                     {new Date(version.createdAt).toLocaleDateString()}
                   </span>
                 </button>
+              ))}
+            </div>
+          </section>
+          <section className="space-y-2 rounded-md border border-white/10 bg-[#20222b] p-3">
+            <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Compartir</h3>
+            <select
+              value={shareAccess}
+              onChange={(event) => setShareAccess(event.target.value as ShareAccess)}
+              className="h-8 w-full rounded-lg border border-white/10 bg-[#12141b] px-2 text-sm text-slate-100"
+              disabled={!sharePersistence.isEnabled}
+            >
+              {SHARE_ACCESS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => void createShareLink()}
+              disabled={!sharePersistence.isEnabled}
+            >
+              <Share2 data-icon="inline-start" />
+              Crear link
+            </Button>
+            {shareStatus ? <p className="text-xs leading-5 text-slate-400">{shareStatus}</p> : null}
+            {!sharePersistence.isEnabled ? (
+              <p className="text-xs leading-5 text-slate-500">Convex no esta conectado.</p>
+            ) : null}
+            {sharePersistence.isLoading ? (
+              <p className="text-xs leading-5 text-slate-500">Cargando links...</p>
+            ) : null}
+            {!sharePersistence.isLoading && sharePersistence.shares.length === 0 ? (
+              <p className="text-xs leading-5 text-slate-500">Todavia no hay links de acceso.</p>
+            ) : null}
+            <div className="grid gap-2">
+              {sharePersistence.shares.map((share) => (
+                <div
+                  key={share.id}
+                  className={`rounded-md border p-3 ${
+                    share.isActive ? "border-white/10 bg-[#171922]" : "border-white/8 bg-[#12141b] opacity-70"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">
+                        {SHARE_ACCESS_OPTIONS.find((option) => option.value === share.access)?.label}
+                      </p>
+                      <p className="truncate pt-1 text-xs text-slate-500">{share.url}</p>
+                    </div>
+                    <Badge className={share.isActive ? "bg-emerald-500/15 text-emerald-100" : "bg-white/8 text-slate-300"}>
+                      {share.isActive ? "Activo" : "Revocado"}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(share.url)
+                        setShareStatus("Link copiado.")
+                      }}
+                    >
+                      Copiar
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void revokeShareLink(share.id)}
+                      disabled={!share.isActive}
+                    >
+                      Revocar
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
           </section>
@@ -3377,10 +3534,15 @@ function ConvexBackedApp() {
   const projectRecords = useQuery(api.projects.list) as ProjectRecord[] | undefined
   const assetRecords = useQuery(api.assets.list) as AssetRecord[] | undefined
   const [activeVersionProjectId, setActiveVersionProjectId] = useState<string | null>(null)
+  const [activeShareProjectId, setActiveShareProjectId] = useState<string | null>(null)
   const versionRecords = useQuery(
     api.projectVersions.list,
     activeVersionProjectId ? { projectId: activeVersionProjectId as Id<"projects"> } : "skip",
   ) as ProjectVersionRecord[] | undefined
+  const shareRecords = useQuery(
+    api.projectShares.list,
+    activeShareProjectId ? { projectId: activeShareProjectId as Id<"projects"> } : "skip",
+  ) as ProjectShareRecord[] | undefined
   const sharedTemplateRecords = useQuery(api.sharedTemplates.list) as
     | (Omit<SharedTemplateSummary, "id"> & { _id: string })[]
     | undefined
@@ -3390,6 +3552,8 @@ function ConvexBackedApp() {
   const saveAsset = useMutation(api.assets.save)
   const createComment = useMutation(api.comments.create)
   const createProjectVersion = useMutation(api.projectVersions.create)
+  const createProjectShare = useMutation(api.projectShares.create)
+  const revokeProjectShare = useMutation(api.projectShares.revoke)
   const createSharedTemplate = useMutation(api.sharedTemplates.create)
 
   const projects = useMemo(
@@ -3419,6 +3583,11 @@ function ConvexBackedApp() {
   const versions = useMemo(
     () => (versionRecords ?? []).map((version) => summarizeProjectVersionRecord(version)),
     [versionRecords],
+  )
+  const shareOrigin = typeof window === "undefined" ? "" : window.location.origin
+  const shares = useMemo(
+    () => (shareRecords ?? []).map((share) => summarizeProjectShareRecord(share, shareOrigin)),
+    [shareOrigin, shareRecords],
   )
 
   const saveProject = useCallback(
@@ -3551,6 +3720,29 @@ function ConvexBackedApp() {
     [convex, createComment],
   )
 
+  const sharePersistence = useMemo<SharePersistence>(
+    () => ({
+      isEnabled: true,
+      isLoading: activeShareProjectId !== null && shareRecords === undefined,
+      shares,
+      selectProject: setActiveShareProjectId,
+      createShare: async (draft) => {
+        await createProjectShare({
+          projectId: draft.projectId as Id<"projects">,
+          access: draft.access,
+          token: draft.token,
+        })
+        setActiveShareProjectId(draft.projectId)
+      },
+      revokeShare: async (shareId) => {
+        await revokeProjectShare({
+          id: shareId as Id<"projectShares">,
+        })
+      },
+    }),
+    [activeShareProjectId, createProjectShare, revokeProjectShare, shareRecords, shares],
+  )
+
   const publishTemplate = useCallback(
     async (draft: ReturnType<typeof createSharedTemplateDraft>) => {
       await createSharedTemplate({
@@ -3602,6 +3794,7 @@ function ConvexBackedApp() {
       versionPersistence={versionPersistence}
       assetPersistence={assetPersistence}
       commentPersistence={commentPersistence}
+      sharePersistence={sharePersistence}
       sharedTemplatePersistence={sharedTemplatePersistence}
     />
   )
@@ -3618,6 +3811,7 @@ function App() {
       versionPersistence={localProjectVersionPersistence}
       assetPersistence={localAssetPersistence}
       commentPersistence={localCommentPersistence}
+      sharePersistence={localSharePersistence}
       sharedTemplatePersistence={localSharedTemplatePersistence}
     />
   )

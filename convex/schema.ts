@@ -15,6 +15,15 @@ export default defineSchema({
     elementCount: v.number(),
     createdAt: v.number(),
   }).index("by_projectId_and_createdAt", ["projectId", "createdAt"]),
+  projectShares: defineTable({
+    projectId: v.id("projects"),
+    access: v.union(v.literal("view"), v.literal("comment"), v.literal("edit")),
+    token: v.string(),
+    createdAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
+    .index("by_token", ["token"]),
   assets: defineTable({
     name: v.string(),
     storageId: v.id("_storage"),

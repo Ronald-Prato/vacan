@@ -10,6 +10,7 @@
 
 import type * as assets from "../assets.js";
 import type * as comments from "../comments.js";
+import type * as projectShares from "../projectShares.js";
 import type * as projectVersions from "../projectVersions.js";
 import type * as projects from "../projects.js";
 import type * as sharedTemplates from "../sharedTemplates.js";
@@ -23,6 +24,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   comments: typeof comments;
+  projectShares: typeof projectShares;
   projectVersions: typeof projectVersions;
   projects: typeof projects;
   sharedTemplates: typeof sharedTemplates;
