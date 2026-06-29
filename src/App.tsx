@@ -81,6 +81,8 @@ import {
   createInitialDocument,
   createDefaultImageFilters,
   createSelectionForElement,
+  createSelectionForElementsInBounds,
+  createSelectionForPageElements,
   createShapeElement,
   createTextElement,
   deleteElements,
@@ -117,6 +119,7 @@ import {
   type EditorDocument,
   type ImageMask,
   type Selection,
+  type SelectionBounds,
   type ShapeType,
 } from "@/editor/document"
 import {
@@ -210,6 +213,11 @@ type StageMap = Record<string, Konva.Stage | null>
 type SnapPreview = {
   pageId: string
   guides: SnapGuide[]
+} | null
+type DragSelection = {
+  pageId: string
+  start: { x: number; y: number }
+  end: { x: number; y: number }
 } | null
 type AutosaveStatus = "local" | "saved" | "saving" | "loading" | "error"
 type ProjectPersistence = {
@@ -420,6 +428,47 @@ function loadImageSize(src: string): Promise<{ width: number; height: number }> 
   })
 }
 
+function waitForNextFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve())
+    })
+  })
+}
+
+function getStageDocumentPointer(stage: Konva.Stage | null, scale: number) {
+  const pointer = stage?.getPointerPosition()
+
+  if (!pointer) {
+    return null
+  }
+
+  return {
+    x: pointer.x / scale,
+    y: pointer.y / scale,
+  }
+}
+
+function createDragSelectionBounds(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): SelectionBounds {
+  return {
+    x: start.x,
+    y: start.y,
+    width: end.x - start.x,
+    height: end.y - start.y,
+  }
+}
+
+function hasDragSelectionArea(bounds: SelectionBounds) {
+  return Math.abs(bounds.width) >= 8 || Math.abs(bounds.height) >= 8
+}
+
+function isCanvasBackgroundTarget(target: Konva.Node) {
+  return target === target.getStage() || target.name() === "canvas-background" || target.name() === "canvas-placeholder"
+}
+
 function useCanvasImage(src: string) {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
 
@@ -580,6 +629,7 @@ function EditableElement({
   onDragMove,
   onDragEnd,
   onTextDoubleClick,
+  showSelectionControls,
 }: {
   element: CanvasElement
   isSelected: boolean
@@ -590,6 +640,7 @@ function EditableElement({
   onDragMove: (position: { x: number; y: number }) => { x: number; y: number }
   onDragEnd: () => void
   onTextDoubleClick: () => void
+  showSelectionControls: boolean
 }) {
   const groupRef = useRef<Konva.Group>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
@@ -645,7 +696,13 @@ function EditableElement({
         height={element.height}
         rotation={element.rotation}
         draggable={!element.locked}
-        onClick={(event) => onSelect(event.evt.shiftKey || event.evt.metaKey)}
+        onMouseEnter={(event) => {
+          event.target.getStage()?.container().style.setProperty("cursor", "pointer")
+        }}
+        onMouseLeave={(event) => {
+          event.target.getStage()?.container().style.removeProperty("cursor")
+        }}
+        onClick={(event) => onSelect(event.evt.shiftKey || event.evt.metaKey || event.evt.ctrlKey)}
         onTap={() => onSelect(false)}
         onDblClick={() => {
           if (element.type === "text") {
@@ -698,7 +755,7 @@ function EditableElement({
             opacity={textElement.opacity}
           />
         ) : null}
-        {isSelected ? (
+        {isSelected && showSelectionControls ? (
           <Rect
             width={element.width}
             height={element.height}
@@ -709,7 +766,7 @@ function EditableElement({
           />
         ) : null}
       </KonvaGroup>
-      {isSelected && canTransform && !element.locked ? (
+      {isSelected && showSelectionControls && canTransform && !element.locked ? (
         <Transformer
           ref={transformerRef}
           rotateEnabled
@@ -960,6 +1017,8 @@ function EditorApp({
   const [selection, setSelection] = useState<Selection>(null)
   const [editingText, setEditingText] = useState("")
   const [snapPreview, setSnapPreview] = useState<SnapPreview>(null)
+  const [dragSelection, setDragSelection] = useState<DragSelection>(null)
+  const [isExporting, setIsExporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canvasViewportRef = useRef<HTMLDivElement>(null)
   const stageRefs = useRef<StageMap>({})
@@ -1050,6 +1109,10 @@ function EditorApp({
   const documentSize = document.size ?? CANVAS_SIZE
   const canvasPreviewWidth = Math.round(documentSize.width * canvasPreviewScale)
   const canvasPreviewHeight = Math.round(documentSize.height * canvasPreviewScale)
+  const dragSelectionBounds = dragSelection
+    ? createDragSelectionBounds(dragSelection.start, dragSelection.end)
+    : null
+  const showSelectionControls = !isExporting
 
   useEffect(() => {
     if (!document.pages.some((page) => page.id === activePageId)) {
@@ -1391,6 +1454,66 @@ function EditorApp({
     )
   }
 
+  const selectEveryElementOnActivePage = () => {
+    if (!resolvedActivePageId) {
+      return
+    }
+
+    setActivePageId(resolvedActivePageId)
+    setSelection(createSelectionForPageElements(document, resolvedActivePageId))
+  }
+
+  const moveSelectedByKeyboard = (delta: { x: number; y: number }) => {
+    if (!selection || selectedElementIds.length === 0) {
+      return
+    }
+
+    setDocument((currentDocument) => moveElementsByDelta(currentDocument, selection.pageId, selectedElementIds, delta))
+  }
+
+  const beginDragSelection = (pageId: string, stage: Konva.Stage | null) => {
+    const pointer = getStageDocumentPointer(stage, canvasPreviewScale)
+
+    if (!pointer) {
+      return
+    }
+
+    setActivePageId(pageId)
+    setDragSelection({
+      pageId,
+      start: pointer,
+      end: pointer,
+    })
+  }
+
+  const updateDragSelection = (pageId: string, stage: Konva.Stage | null) => {
+    const pointer = getStageDocumentPointer(stage, canvasPreviewScale)
+
+    if (!pointer) {
+      return
+    }
+
+    setDragSelection((currentSelection) =>
+      currentSelection?.pageId === pageId
+        ? {
+            ...currentSelection,
+            end: pointer,
+          }
+        : currentSelection,
+    )
+  }
+
+  const completeDragSelection = (pageId: string) => {
+    if (!dragSelection || dragSelection.pageId !== pageId) {
+      return
+    }
+
+    const bounds = createDragSelectionBounds(dragSelection.start, dragSelection.end)
+
+    setSelection(hasDragSelectionArea(bounds) ? createSelectionForElementsInBounds(document, pageId, bounds) : null)
+    setDragSelection(null)
+  }
+
   const addImageAssetToPage = (
     asset: Asset,
     imageSize: { width: number; height: number },
@@ -1512,7 +1635,7 @@ function EditorApp({
   }
 
   const addNewPage = () => {
-    const targetPageId = resolvedActivePageId ?? document.pages.at(-1)?.id
+    const targetPageId = document.pages.at(-1)?.id
 
     if (targetPageId) {
       addNewPageAfter(targetPageId)
@@ -1741,11 +1864,20 @@ function EditorApp({
       return
     }
 
-    const dataUrl = stageRefs.current[resolvedActivePageId]?.toDataURL({
-      pixelRatio: 1 / canvasPreviewScale,
-      mimeType: getExportMimeType(exportOptions.format),
-      quality: exportOptions.quality,
-    })
+    setIsExporting(true)
+    await waitForNextFrame()
+
+    let dataUrl: string | undefined
+
+    try {
+      dataUrl = stageRefs.current[resolvedActivePageId]?.toDataURL({
+        pixelRatio: 1 / canvasPreviewScale,
+        mimeType: getExportMimeType(exportOptions.format),
+        quality: exportOptions.quality,
+      })
+    } finally {
+      setIsExporting(false)
+    }
 
     if (!dataUrl) {
       return
@@ -1799,9 +1931,27 @@ function EditorApp({
         return
       }
 
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault()
+        selectEveryElementOnActivePage()
+        return
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
         event.preventDefault()
         duplicateSelected()
+      }
+
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        const step = event.shiftKey ? 10 : 1
+        const delta = {
+          x: event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0,
+          y: event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0,
+        }
+
+        event.preventDefault()
+        moveSelectedByKeyboard(delta)
+        return
       }
 
       if (event.key === "Backspace" || event.key === "Delete") {
@@ -3043,22 +3193,40 @@ function EditorApp({
                       scaleX={canvasPreviewScale}
                       scaleY={canvasPreviewScale}
                       onMouseDown={(event) => {
-                        if (event.target === event.target.getStage()) {
-                          setActivePageId(page.id)
-                          setSelection(null)
+                        if (isCanvasBackgroundTarget(event.target)) {
+                          beginDragSelection(page.id, event.target.getStage())
+                        }
+                      }}
+                      onMouseMove={(event) => {
+                        if (dragSelection?.pageId === page.id) {
+                          updateDragSelection(page.id, event.target.getStage())
+                        }
+                      }}
+                      onMouseUp={() => {
+                        completeDragSelection(page.id)
+                      }}
+                      onMouseLeave={() => {
+                        if (dragSelection?.pageId === page.id) {
+                          completeDragSelection(page.id)
                         }
                       }}
                       onTouchStart={(event) => {
-                        if (event.target === event.target.getStage()) {
+                        if (isCanvasBackgroundTarget(event.target)) {
                           setActivePageId(page.id)
                           setSelection(null)
                         }
                       }}
                     >
                       <KonvaLayer>
-                        <Rect width={documentSize.width} height={documentSize.height} fill={page.background} />
+                        <Rect
+                          name="canvas-background"
+                          width={documentSize.width}
+                          height={documentSize.height}
+                          fill={page.background}
+                        />
                         {page.elements.length === 0 ? (
                           <Text
+                            name="canvas-placeholder"
                             text="Sube una imagen, agrega texto o inserta una forma"
                             x={0}
                             y={documentSize.height / 2 - 42}
@@ -3074,6 +3242,7 @@ function EditorApp({
                             element={element}
                             isSelected={selectionIncludesElement(selection, page.id, element.id)}
                             canTransform={!hasMultiSelection}
+                            showSelectionControls={showSelectionControls}
                             onSelect={(additive) => selectElement(page.id, element.id, additive)}
                             onChange={(changes) => {
                               setDocument((currentDocument) => {
@@ -3145,27 +3314,42 @@ function EditorApp({
                               />
                             ))
                           : null}
+                        {showSelectionControls && dragSelection?.pageId === page.id && dragSelectionBounds ? (
+                          <Rect
+                            x={Math.min(dragSelectionBounds.x, dragSelectionBounds.x + dragSelectionBounds.width)}
+                            y={Math.min(dragSelectionBounds.y, dragSelectionBounds.y + dragSelectionBounds.height)}
+                            width={Math.abs(dragSelectionBounds.width)}
+                            height={Math.abs(dragSelectionBounds.height)}
+                            fill="rgba(0, 196, 204, 0.08)"
+                            stroke="#00c4cc"
+                            strokeWidth={2}
+                            dash={[18, 12]}
+                            listening={false}
+                          />
+                        ) : null}
                       </KonvaLayer>
                     </Stage>
                   </div>
-                  <div className="mx-auto mt-5 flex h-12 overflow-hidden rounded-md border border-white/35 bg-transparent text-slate-200" style={{ width: canvasPreviewWidth }}>
-                    <button
-                      type="button"
-                      className="flex flex-1 items-center justify-center gap-2 text-sm font-bold transition hover:bg-white/10"
-                      onClick={() => addNewPageAfter(page.id)}
-                    >
-                      <Plus className="size-4" />
-                      Agregar una pagina
-                    </button>
-                    <button
-                      type="button"
-                      className="grid w-12 place-items-center border-l border-white/35 transition hover:bg-white/10"
-                      onClick={() => addNewPageAfter(page.id)}
-                      aria-label="Mas opciones de pagina"
-                    >
-                      <ChevronDown className="size-4" />
-                    </button>
-                  </div>
+                  {pageIndex === document.pages.length - 1 ? (
+                    <div className="mx-auto mt-5 flex h-12 overflow-hidden rounded-md border border-white/35 bg-transparent text-slate-200" style={{ width: canvasPreviewWidth }}>
+                      <button
+                        type="button"
+                        className="flex flex-1 items-center justify-center gap-2 text-sm font-bold transition hover:bg-white/10"
+                        onClick={() => addNewPageAfter(page.id)}
+                      >
+                        <Plus className="size-4" />
+                        Agregar una pagina
+                      </button>
+                      <button
+                        type="button"
+                        className="grid w-12 place-items-center border-l border-white/35 transition hover:bg-white/10"
+                        onClick={() => addNewPageAfter(page.id)}
+                        aria-label="Mas opciones de pagina"
+                      >
+                        <ChevronDown className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
                 </section>
               ))}
             </div>

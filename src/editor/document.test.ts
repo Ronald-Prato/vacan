@@ -9,6 +9,8 @@ import {
   createImageElement,
   createInitialDocument,
   createSelectionForElement,
+  createSelectionForElementsInBounds,
+  createSelectionForPageElements,
   createShapeElement,
   createTextElement,
   deleteElements,
@@ -188,6 +190,50 @@ describe("editor document model", () => {
       first,
       second,
     ])
+  })
+
+  it("creates a selection with every visible element on a page", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const hidden = { ...createShapeElement("triangle", nextId), visible: false }
+    const withElements = [first, second, hidden].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    expect(createSelectionForPageElements(withElements, pageId)).toEqual({
+      pageId,
+      elementIds: [first.id, second.id],
+    })
+  })
+
+  it("creates a selection from every visible element intersecting a drag range", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = { ...createShapeElement("rect", nextId), x: 100, y: 100, width: 200, height: 160 }
+    const second = { ...createShapeElement("circle", nextId), x: 260, y: 220, width: 180, height: 180 }
+    const third = { ...createShapeElement("triangle", nextId), x: 900, y: 900, width: 120, height: 120 }
+    const hidden = { ...createShapeElement("rect", nextId), x: 180, y: 160, width: 80, height: 80, visible: false }
+    const withElements = [first, second, third, hidden].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    expect(
+      createSelectionForElementsInBounds(withElements, pageId, {
+        x: 500,
+        y: 500,
+        width: -440,
+        height: -360,
+      }),
+    ).toEqual({
+      pageId,
+      elementIds: [first.id, second.id],
+    })
   })
 
   it("deletes, duplicates, and moves multi-selected elements together", () => {

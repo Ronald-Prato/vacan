@@ -144,6 +144,13 @@ export type MultiSelection = {
 
 export type Selection = ElementSelection | MultiSelection | null
 
+export type SelectionBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type IdFactory = () => string
 
 const fallbackIdFactory: IdFactory = () => {
@@ -603,6 +610,81 @@ export function createSelectionForElement(
     .map((candidate) => candidate.id)
 
   return createMultiSelection(pageId, groupedIds)
+}
+
+export function createSelectionForPageElements(document: EditorDocument, pageId: string): Selection {
+  const page = document.pages.find((candidate) => candidate.id === pageId)
+
+  if (!page) {
+    return null
+  }
+
+  return createSelectionFromPageElementIds(
+    page,
+    page.elements.filter((element) => element.visible ?? true).map((element) => element.id),
+  )
+}
+
+export function createSelectionForElementsInBounds(
+  document: EditorDocument,
+  pageId: string,
+  bounds: SelectionBounds,
+): Selection {
+  const page = document.pages.find((candidate) => candidate.id === pageId)
+
+  if (!page) {
+    return null
+  }
+
+  const normalizedBounds = normalizeSelectionBounds(bounds)
+  const elementIds = page.elements
+    .filter((element) => (element.visible ?? true) && rectanglesIntersect(element, normalizedBounds))
+    .map((element) => element.id)
+
+  return createSelectionFromPageElementIds(page, elementIds)
+}
+
+function createSelectionFromPageElementIds(page: Page, elementIds: string[]): Selection {
+  const selectedIds = new Set(elementIds)
+
+  if (selectedIds.size === 0) {
+    return null
+  }
+
+  const expandedIds = page.elements
+    .filter((element) => {
+      if (selectedIds.has(element.id)) {
+        return true
+      }
+
+      return element.groupId
+        ? page.elements.some((candidate) => selectedIds.has(candidate.id) && candidate.groupId === element.groupId)
+        : false
+    })
+    .map((element) => element.id)
+
+  return createMultiSelection(page.id, expandedIds)
+}
+
+function normalizeSelectionBounds(bounds: SelectionBounds): SelectionBounds {
+  const x = Math.min(bounds.x, bounds.x + bounds.width)
+  const y = Math.min(bounds.y, bounds.y + bounds.height)
+
+  return {
+    x,
+    y,
+    width: Math.abs(bounds.width),
+    height: Math.abs(bounds.height),
+  }
+}
+
+function rectanglesIntersect(element: Pick<CanvasElement, "x" | "y" | "width" | "height">, bounds: SelectionBounds) {
+  return (
+    element.x < bounds.x + bounds.width &&
+    element.x + element.width > bounds.x &&
+    element.y < bounds.y + bounds.height &&
+    element.y + element.height > bounds.y
+  )
 }
 
 export function toggleElementSelection(
