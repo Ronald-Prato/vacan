@@ -16,8 +16,10 @@ import {
   moveElementForward,
   moveElementToBack,
   moveElementToFront,
+  normalizeTextElement,
   pageElementCount,
   toggleElementLocked,
+  updateTextStyle,
   updateElement,
   type Asset,
 } from "./document"
@@ -193,5 +195,74 @@ describe("editor document model", () => {
     expect(findElement(locked, { pageId, elementId: shape.id })).toMatchObject({ locked: true })
     expect(findElement(unlocked, { pageId, elementId: shape.id })).toMatchObject({ locked: false })
     expect(unlocked.pages[0].elements.map((element) => element.id)).toEqual([shape.id])
+  })
+
+  it("creates text with rich editing defaults", () => {
+    const text = createTextElement(() => "text-1")
+
+    expect(text).toMatchObject({
+      align: "center",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      textDecoration: "none",
+      lineHeight: 1.08,
+      letterSpacing: 0,
+    })
+  })
+
+  it("updates text styles with bounded numeric values", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const text = createTextElement(nextId)
+    const withText = addElementToPage(document, pageId, text)
+
+    const styled = updateTextStyle(withText, pageId, text.id, {
+      align: "right",
+      fontWeight: "bold",
+      fontStyle: "italic",
+      textDecoration: "underline",
+      lineHeight: 4,
+      letterSpacing: -200,
+    })
+
+    expect(findElement(styled, { pageId, elementId: text.id })).toMatchObject({
+      align: "right",
+      fontWeight: "bold",
+      fontStyle: "italic",
+      textDecoration: "underline",
+      lineHeight: 2.5,
+      letterSpacing: -50,
+    })
+  })
+
+  it("normalizes older text elements that are missing rich style fields", () => {
+    const legacyText = {
+      ...createTextElement(() => "text-1"),
+      align: undefined,
+      lineHeight: undefined,
+      letterSpacing: undefined,
+    }
+
+    expect(normalizeTextElement(legacyText)).toMatchObject({
+      align: "center",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      textDecoration: "none",
+      lineHeight: 1.08,
+      letterSpacing: 0,
+    })
+  })
+
+  it("ignores text style updates for non-text elements", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = createShapeElement("rect", nextId)
+    const withShape = addElementToPage(document, pageId, shape)
+
+    const updated = updateTextStyle(withShape, pageId, shape.id, { fontWeight: "bold" })
+
+    expect(updated).toEqual(withShape)
   })
 })

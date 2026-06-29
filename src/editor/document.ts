@@ -36,6 +36,10 @@ export const SHAPE_OPTIONS = [
 
 export type FontFamily = (typeof FONT_OPTIONS)[number]
 export type ShapeType = (typeof SHAPE_OPTIONS)[number]["type"]
+export type TextAlign = "left" | "center" | "right"
+export type TextFontWeight = "normal" | "bold"
+export type TextFontStyle = "normal" | "italic"
+export type TextDecoration = "none" | "underline"
 
 export type Asset = {
   id: string
@@ -67,7 +71,18 @@ export type TextElement = BaseElement & {
   fontFamily: FontFamily
   fontSize: number
   fill: string
+  align: TextAlign
+  fontWeight: TextFontWeight
+  fontStyle: TextFontStyle
+  textDecoration: TextDecoration
+  lineHeight: number
+  letterSpacing: number
 }
+type TextStyleFields = Pick<
+  TextElement,
+  "align" | "fontWeight" | "fontStyle" | "textDecoration" | "lineHeight" | "letterSpacing"
+>
+type TextElementWithOptionalStyle = Omit<TextElement, keyof TextStyleFields> & Partial<TextStyleFields>
 
 export type ShapeElement = BaseElement & {
   type: "shape"
@@ -178,6 +193,12 @@ export function createTextElement(
     fontFamily: "Geist Variable",
     fontSize: 184,
     fill: "#111827",
+    align: "center",
+    fontWeight: "normal",
+    fontStyle: "normal",
+    textDecoration: "none",
+    lineHeight: 1.08,
+    letterSpacing: 0,
   }
 }
 
@@ -209,6 +230,18 @@ export function createShapeElement(
     locked: false,
     fill: preset.fill,
     stroke: "#0f172a",
+  }
+}
+
+export function normalizeTextElement(element: TextElementWithOptionalStyle): TextElement {
+  return {
+    ...element,
+    align: element.align ?? "center",
+    fontWeight: element.fontWeight ?? "normal",
+    fontStyle: element.fontStyle ?? "normal",
+    textDecoration: element.textDecoration ?? "none",
+    lineHeight: element.lineHeight ?? 1.08,
+    letterSpacing: element.letterSpacing ?? 0,
   }
 }
 
@@ -409,6 +442,43 @@ export function toggleElementLocked(
       element.id === elementId ? { ...element, locked: !element.locked } : element,
     ),
   }))
+}
+
+export function updateTextStyle(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  changes: Partial<Pick<
+    TextElement,
+    "align" | "fontWeight" | "fontStyle" | "textDecoration" | "lineHeight" | "letterSpacing"
+  >>,
+): EditorDocument {
+  let didUpdate = false
+  const nextDocument = updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      if (element.id !== elementId || element.type !== "text") {
+        return element
+      }
+
+      didUpdate = true
+      const textElement = normalizeTextElement(element)
+
+      return {
+        ...textElement,
+        ...changes,
+        lineHeight: changes.lineHeight === undefined ? textElement.lineHeight : clamp(changes.lineHeight, 0.7, 2.5),
+        letterSpacing:
+          changes.letterSpacing === undefined ? textElement.letterSpacing : clamp(changes.letterSpacing, -50, 200),
+      }
+    }),
+  }))
+
+  return didUpdate ? nextDocument : document
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function moveElementByOffset(

@@ -252,5 +252,11 @@ function text(
     fontFamily: "Geist Variable",
     fontSize,
     fill,
+    align: "left",
+    fontWeight: "normal",
+    fontStyle: "normal",
+    textDecoration: "none",
+    lineHeight: 1.08,
+    letterSpacing: 0,
   }
 }

@@ -3,6 +3,10 @@ import { useConvex, useMutation, useQuery } from "convex/react"
 import Konva from "konva"
 import {
   AppWindow,
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
   BringToFront,
   ChartColumn,
   ChevronDown,
@@ -16,6 +20,7 @@ import {
   Grid2x2,
   Home,
   Image as ImageIcon,
+  Italic,
   Layers3,
   LayoutTemplate,
   Lock,
@@ -34,6 +39,7 @@ import {
   Triangle,
   Type,
   Redo2,
+  Underline,
   Undo2,
   WandSparkles,
   type LucideIcon,
@@ -70,7 +76,9 @@ import {
   moveElementForward,
   moveElementToBack,
   moveElementToFront,
+  normalizeTextElement,
   toggleElementLocked,
+  updateTextStyle,
   updateElement,
   type Asset,
   type CanvasElement,
@@ -359,6 +367,7 @@ function EditableElement({
 }) {
   const groupRef = useRef<Konva.Group>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
+  const textElement = element.type === "text" ? normalizeTextElement(element) : null
 
   useEffect(() => {
     if (!isSelected || !groupRef.current || !transformerRef.current) {
@@ -441,17 +450,21 @@ function EditableElement({
       >
         {element.type === "image" ? <EditableImage element={element} /> : null}
         {element.type === "shape" ? <EditableShape element={element} /> : null}
-        {element.type === "text" ? (
+        {textElement ? (
           <Text
-            text={element.text}
-            width={element.width}
-            height={element.height}
-            fill={element.fill}
-            fontFamily={element.fontFamily}
-            fontSize={element.fontSize}
-            lineHeight={1.08}
+            text={textElement.text}
+            width={textElement.width}
+            height={textElement.height}
+            fill={textElement.fill}
+            fontFamily={textElement.fontFamily}
+            fontSize={textElement.fontSize}
+            fontStyle={`${textElement.fontWeight}${textElement.fontStyle === "italic" ? " italic" : ""}`}
+            textDecoration={textElement.textDecoration}
+            align={textElement.align}
+            lineHeight={textElement.lineHeight}
+            letterSpacing={textElement.letterSpacing}
             verticalAlign="middle"
-            opacity={element.opacity}
+            opacity={textElement.opacity}
           />
         ) : null}
       </KonvaGroup>
@@ -595,6 +608,7 @@ function EditorApp({
   const resolvedActivePageId = selection?.pageId ?? activePageId ?? document.pages[0]?.id
   const activePage = document.pages.find((page) => page.id === resolvedActivePageId) ?? document.pages[0]
   const selectedElement = useMemo(() => findElement(document, selection), [document, selection])
+  const selectedTextElement = selectedElement?.type === "text" ? normalizeTextElement(selectedElement) : null
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
   const assets = assetPersistence.isEnabled ? assetPersistence.assets : localAssets
   const documentSize = document.size ?? CANVAS_SIZE
@@ -916,6 +930,16 @@ function EditorApp({
 
     setDocument((currentDocument) =>
       updateElement(currentDocument, selection.pageId, selection.elementId, changes),
+    )
+  }
+
+  const updateSelectedTextStyle = (changes: Parameters<typeof updateTextStyle>[3]) => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      updateTextStyle(currentDocument, selection.pageId, selection.elementId, changes),
     )
   }
 
@@ -1884,7 +1908,7 @@ function EditorApp({
                 />
               </div>
 
-              {selectedElement.type === "text" ? (
+              {selectedTextElement ? (
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="text-content">Texto</Label>
@@ -1902,10 +1926,10 @@ function EditorApp({
                     <Label htmlFor="font-family">Fuente</Label>
                     <select
                       id="font-family"
-                      value={selectedElement.fontFamily}
-                      onChange={(event) =>
-                        updateSelected({ fontFamily: event.target.value as typeof selectedElement.fontFamily })
-                      }
+	                      value={selectedTextElement.fontFamily}
+	                      onChange={(event) =>
+	                        updateSelected({ fontFamily: event.target.value as typeof selectedTextElement.fontFamily })
+	                      }
 	                      className="h-8 w-full rounded-lg border border-white/10 bg-[#12141b] px-2 text-sm text-slate-100"
                     >
                       {FONT_OPTIONS.map((fontFamily) => (
@@ -1916,21 +1940,117 @@ function EditorApp({
                     </select>
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label>Tamano</Label>
-	                      <span className="text-xs text-slate-400">{selectedElement.fontSize}px</span>
-                    </div>
+	                  <div className="space-y-3">
+	                    <div className="flex items-center justify-between">
+	                      <Label>Tamano</Label>
+			                      <span className="text-xs text-slate-400">{selectedTextElement.fontSize}px</span>
+	                    </div>
                     <Slider
-                      value={[selectedElement.fontSize]}
+	                      value={[selectedTextElement.fontSize]}
                       min={12}
                       max={120}
                       step={1}
-                      onValueChange={([fontSize]) => updateSelected({ fontSize })}
+	                      onValueChange={([fontSize]) => updateSelected({ fontSize })}
+	                    />
+	                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Estilo</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        size="icon-sm"
+	                        variant={selectedTextElement.fontWeight === "bold" ? "default" : "outline"}
+                        aria-label="Negrita"
+                        onClick={() =>
+                          updateSelectedTextStyle({
+	                            fontWeight: selectedTextElement.fontWeight === "bold" ? "normal" : "bold",
+                          })
+                        }
+                      >
+                        <Bold />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+	                        variant={selectedTextElement.fontStyle === "italic" ? "default" : "outline"}
+                        aria-label="Italica"
+                        onClick={() =>
+                          updateSelectedTextStyle({
+	                            fontStyle: selectedTextElement.fontStyle === "italic" ? "normal" : "italic",
+                          })
+                        }
+                      >
+                        <Italic />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+	                        variant={selectedTextElement.textDecoration === "underline" ? "default" : "outline"}
+                        aria-label="Subrayado"
+                        onClick={() =>
+                          updateSelectedTextStyle({
+                            textDecoration:
+	                              selectedTextElement.textDecoration === "underline" ? "none" : "underline",
+                          })
+                        }
+                      >
+                        <Underline />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Alineacion</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: "left", icon: AlignLeft, label: "Izquierda" },
+                        { value: "center", icon: AlignCenter, label: "Centro" },
+                        { value: "right", icon: AlignRight, label: "Derecha" },
+                      ].map((option) => {
+                        const Icon = option.icon
+
+                        return (
+                          <Button
+                            key={option.value}
+                            size="icon-sm"
+	                            variant={selectedTextElement.align === option.value ? "default" : "outline"}
+	                            aria-label={option.label}
+	                            onClick={() => updateSelectedTextStyle({ align: option.value as typeof selectedTextElement.align })}
+                          >
+                            <Icon />
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Interlineado</Label>
+	                      <span className="text-xs text-slate-400">{selectedTextElement.lineHeight.toFixed(2)}</span>
+                    </div>
+                    <Slider
+	                      value={[selectedTextElement.lineHeight]}
+                      min={0.7}
+                      max={2.5}
+                      step={0.05}
+                      onValueChange={([lineHeight]) => updateSelectedTextStyle({ lineHeight })}
                     />
                   </div>
-                </>
-              ) : null}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Espaciado</Label>
+	                      <span className="text-xs text-slate-400">{Math.round(selectedTextElement.letterSpacing)}px</span>
+                    </div>
+                    <Slider
+	                      value={[selectedTextElement.letterSpacing]}
+                      min={-50}
+                      max={200}
+                      step={1}
+                      onValueChange={([letterSpacing]) => updateSelectedTextStyle({ letterSpacing })}
+                    />
+                  </div>
+	                </>
+	              ) : null}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
