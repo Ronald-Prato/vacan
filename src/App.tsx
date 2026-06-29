@@ -109,6 +109,14 @@ import {
   replaceHistoryPresent,
   undoHistory,
 } from "@/editor/history"
+import {
+  createCommentDraft,
+  describeCommentTarget,
+  summarizeCommentRecord,
+  type CommentDraft,
+  type CommentRecord,
+  type EditorComment,
+} from "@/editor/comments"
 import { filterSearchItems } from "@/editor/search"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
 import {
@@ -156,6 +164,11 @@ type AssetPersistence = {
   assets: LibraryAsset[]
   uploadAsset: (file: File) => Promise<LibraryAsset>
 }
+type CommentPersistence = {
+  isEnabled: boolean
+  listComments: (projectId: string) => Promise<EditorComment[]>
+  createComment: (projectId: string, comment: CommentDraft) => Promise<void>
+}
 type DocumentUpdater = EditorDocument | ((currentDocument: EditorDocument) => EditorDocument)
 
 const colorSwatches = ["#111827", "#ffffff", "#ef4444", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6"]
@@ -188,6 +201,12 @@ const localAssetPersistence: AssetPersistence = {
     }),
 }
 
+const localCommentPersistence: CommentPersistence = {
+  isEnabled: false,
+  listComments: async () => [],
+  createComment: async () => undefined,
+}
+
 type ToolId =
   | "templates"
   | "elements"
@@ -200,6 +219,7 @@ type ToolId =
   | "content"
   | "photos"
   | "background"
+  | "comments"
 
 type SidebarTool = {
   id: ToolId
@@ -220,6 +240,7 @@ const sidebarTools: SidebarTool[] = [
   { id: "content", label: "Contenido magico", shortLabel: "Contenido ...", icon: WandSparkles },
   { id: "photos", label: "Fotos", icon: ImageIcon },
   { id: "background", label: "Fondo", icon: Palette },
+  { id: "comments", label: "Comentarios", shortLabel: "Comentar...", icon: MessageCircle },
 ]
 
 function createId() {
@@ -550,9 +571,11 @@ function ToolAction({
 function EditorApp({
   persistence,
   assetPersistence,
+  commentPersistence,
 }: {
   persistence: ProjectPersistence
   assetPersistence: AssetPersistence
+  commentPersistence: CommentPersistence
 }) {
   const [documentHistory, setDocumentHistory] = useState(() =>
     createHistoryState<EditorDocument>(createInitialDocument(createId)),
@@ -563,6 +586,11 @@ function EditorApp({
   )
   const [autosaveError, setAutosaveError] = useState("")
   const [assetUploadError, setAssetUploadError] = useState("")
+  const [comments, setComments] = useState<EditorComment[]>([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const [commentBody, setCommentBody] = useState("")
+  const [commentAuthor, setCommentAuthor] = useState("Colaborador")
+  const [commentError, setCommentError] = useState("")
   const [localAssets, setLocalAssets] = useState<LibraryAsset[]>([])
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
@@ -581,6 +609,24 @@ function EditorApp({
   const [canvasPreviewScale, setCanvasPreviewScale] = useState(MAX_CANVAS_PREVIEW_SIZE / CANVAS_SIZE.width)
   const canUndo = documentHistory.past.length > 0
   const canRedo = documentHistory.future.length > 0
+
+  const refreshComments = useCallback(async () => {
+    if (!commentPersistence.isEnabled || !currentProjectId) {
+      setComments([])
+      return
+    }
+
+    setCommentsLoading(true)
+    setCommentError("")
+
+    try {
+      setComments(await commentPersistence.listComments(currentProjectId))
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "No se pudieron cargar los comentarios")
+    } finally {
+      setCommentsLoading(false)
+    }
+  }, [commentPersistence, currentProjectId])
 
   const setDocument = useCallback((updater: DocumentUpdater) => {
     setDocumentHistory((currentHistory) => {
@@ -630,6 +676,10 @@ function EditorApp({
   useEffect(() => {
     setPanelSearchQuery("")
   }, [activeTool])
+
+  useEffect(() => {
+    void refreshComments()
+  }, [refreshComments])
 
   useEffect(() => {
     const viewport = canvasViewportRef.current
@@ -941,6 +991,35 @@ function EditorApp({
     setDocument((currentDocument) =>
       updateTextStyle(currentDocument, selection.pageId, selection.elementId, changes),
     )
+  }
+
+  const submitComment = async () => {
+    if (!commentPersistence.isEnabled || !currentProjectId) {
+      setCommentError("Guarda el proyecto antes de comentar.")
+      return
+    }
+
+    const draft = createCommentDraft({
+      body: commentBody,
+      authorName: commentAuthor,
+      pageId: resolvedActivePageId ?? null,
+      elementId: selection?.elementId ?? null,
+    })
+
+    if (!draft.body) {
+      setCommentError("Escribe un comentario antes de enviarlo.")
+      return
+    }
+
+    setCommentError("")
+
+    try {
+      await commentPersistence.createComment(currentProjectId, draft)
+      setCommentBody("")
+      await refreshComments()
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "No se pudo crear el comentario")
+    }
   }
 
   const removeSelected = () => {
@@ -1408,6 +1487,93 @@ function EditorApp({
       )
     }
 
+    if (activeTool === "comments") {
+      const filteredComments = filterSearchItems(comments, panelSearchQuery, ["body", "authorName"])
+
+      return (
+        <>
+          {renderPanelSearch("Busca comentarios")}
+          {!commentPersistence.isEnabled ? (
+            <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm leading-6 text-slate-400">
+              Configura VITE_CONVEX_URL para comentar con otros colaboradores.
+            </div>
+          ) : null}
+          {commentPersistence.isEnabled && !currentProjectId ? (
+            <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm leading-6 text-slate-400">
+              Guarda el proyecto antes de crear comentarios.
+            </div>
+          ) : null}
+          <div className="space-y-3 rounded-md border border-white/10 bg-[#20222b] p-3">
+            <Input
+              value={commentAuthor}
+              onChange={(event) => setCommentAuthor(event.target.value)}
+              placeholder="Tu nombre"
+              className="bg-[#12141b] text-slate-100"
+            />
+            <textarea
+              value={commentBody}
+              onChange={(event) => setCommentBody(event.target.value)}
+              placeholder="Agrega un comentario"
+              className="min-h-24 w-full resize-none rounded-lg border border-white/10 bg-[#12141b] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus-visible:border-[#7c3aed]"
+            />
+            <Button
+              className="w-full bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
+              onClick={() => {
+                void submitComment()
+              }}
+              disabled={!commentPersistence.isEnabled || !currentProjectId}
+            >
+              <MessageCircle data-icon="inline-start" />
+              Comentar
+            </Button>
+          </div>
+          {commentError ? (
+            <div className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-100">
+              {commentError}
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            {commentsLoading ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Cargando comentarios...
+              </div>
+            ) : null}
+            {!commentsLoading && comments.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Todavia no hay comentarios.
+              </div>
+            ) : null}
+            {comments.length > 0 && filteredComments.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                No hay comentarios para esa busqueda.
+              </div>
+            ) : null}
+            {filteredComments.map((comment) => {
+              const page = document.pages.find((candidate) => candidate.id === comment.pageId)
+              const element = comment.elementId
+                ? page?.elements.find((candidate) => candidate.id === comment.elementId)
+                : null
+
+              return (
+                <article key={comment.id} className="rounded-md border border-white/10 bg-[#20222b] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-semibold text-white">{comment.authorName}</span>
+                    <span className="shrink-0 text-xs text-slate-500">
+                      {new Date(comment.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-6 text-slate-300">{comment.body}</p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {describeCommentTarget({ pageName: page?.name, elementName: element?.name })}
+                  </p>
+                </article>
+              )
+            })}
+          </div>
+        </>
+      )
+    }
+
     if (activeTool === "tools") {
       return (
         <>
@@ -1600,7 +1766,13 @@ function EditorApp({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon-lg" variant="ghost" className="text-white hover:bg-white/15" aria-label="Comentarios">
+              <Button
+                size="icon-lg"
+                variant="ghost"
+                className="text-white hover:bg-white/15"
+                aria-label="Comentarios"
+                onClick={() => setActiveTool("comments")}
+              >
                 <MessageCircle />
               </Button>
             </TooltipTrigger>
@@ -2173,6 +2345,7 @@ function ConvexBackedApp() {
   const updateProject = useMutation(api.projects.updateCanvas)
   const generateAssetUploadUrl = useMutation(api.assets.generateUploadUrl)
   const saveAsset = useMutation(api.assets.save)
+  const createComment = useMutation(api.comments.create)
 
   const projects = useMemo(
     () => (projectRecords ?? []).map((project) => summarizeProjectRecord(project)),
@@ -2270,7 +2443,36 @@ function ConvexBackedApp() {
     [assetRecords, assets, uploadAsset],
   )
 
-  return <EditorApp persistence={persistence} assetPersistence={assetPersistence} />
+  const commentPersistence = useMemo<CommentPersistence>(
+    () => ({
+      isEnabled: true,
+      listComments: async (projectId) => {
+        const records = (await convex.query(api.comments.list, {
+          projectId: projectId as Id<"projects">,
+        })) as CommentRecord[]
+
+        return records.map((record) => summarizeCommentRecord(record))
+      },
+      createComment: async (projectId, comment) => {
+        await createComment({
+          projectId: projectId as Id<"projects">,
+          body: comment.body,
+          authorName: comment.authorName,
+          pageId: comment.pageId,
+          elementId: comment.elementId,
+        })
+      },
+    }),
+    [convex, createComment],
+  )
+
+  return (
+    <EditorApp
+      persistence={persistence}
+      assetPersistence={assetPersistence}
+      commentPersistence={commentPersistence}
+    />
+  )
 }
 
 function App() {
@@ -2278,7 +2480,13 @@ function App() {
     return <ConvexBackedApp />
   }
 
-  return <EditorApp persistence={localProjectPersistence} assetPersistence={localAssetPersistence} />
+  return (
+    <EditorApp
+      persistence={localProjectPersistence}
+      assetPersistence={localAssetPersistence}
+      commentPersistence={localCommentPersistence}
+    />
+  )
 }
 
 export default App

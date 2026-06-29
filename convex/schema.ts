@@ -14,4 +14,12 @@ export default defineSchema({
     size: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_updatedAt", ["updatedAt"]),
+  comments: defineTable({
+    projectId: v.id("projects"),
+    body: v.string(),
+    authorName: v.string(),
+    pageId: v.union(v.string(), v.null()),
+    elementId: v.union(v.string(), v.null()),
+    createdAt: v.number(),
+  }).index("by_projectId_and_createdAt", ["projectId", "createdAt"]),
 })

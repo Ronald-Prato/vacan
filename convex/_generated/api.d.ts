@@ -9,6 +9,7 @@
  */
 
 import type * as assets from "../assets.js";
+import type * as comments from "../comments.js";
 import type * as projects from "../projects.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   assets: typeof assets;
+  comments: typeof comments;
   projects: typeof projects;
 }>;
 

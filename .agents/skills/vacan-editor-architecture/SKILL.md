@@ -46,6 +46,8 @@ surface grows.
   templates, assets, projects, tools, and future libraries.
 - `src/editor/export.ts`: export formats, filenames, MIME types, and quality
   defaults. Keep browser/PDF rendering in UI adapters.
+- `src/editor/comments.ts`: comment draft/target/summary helpers. Keep
+  collaborative metadata out of project canvas documents.
 - `src/App.tsx`: UI composition and injected adapters. Avoid adding business
   logic here if it can be tested in `src/editor`.
 - `convex/*.ts`: backend storage and query/mutation/action boundaries.
@@ -59,6 +61,8 @@ surface grows.
 - All public Convex functions need validators.
 - Keep high-churn collaboration or presence state separate from stable project
   documents when collaboration is introduced.
+- Comments and collaboration metadata should live in dedicated tables indexed by
+  project, with bounded reads.
 
 ## UI Rules
 
@@ -84,3 +88,5 @@ surface grows.
   and custom accessors.
 - Export helpers: file type, page selection, scaling, transparency options.
   Use dynamic imports for heavy PDF/export dependencies.
+- Comment helpers: draft normalization, target descriptions, and record
+  summaries.
