@@ -30,7 +30,7 @@ vacan es un editor open source inspirado en Canva. El primer objetivo es tener u
 
 El MVP inicial incluye:
 
-- Canvas blanco de 980 x 620.
+- Canvas blanco cuadrado de 4096 x 4096.
 - Upload local de imagenes.
 - Capas seleccionables y arrastrables.
 - Resize y rotacion con handles.

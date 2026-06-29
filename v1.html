@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vacan v1 MVP</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111827;
+        --muted: #64748b;
+        --line: #dbe3ea;
+        --paper: #ffffff;
+        --wash: #edf0f2;
+        --brand: #00c4cc;
+        --accent: #8b5cf6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--wash);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 40px 20px 64px;
+      }
+
+      header {
+        display: grid;
+        gap: 18px;
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: 0 20px 44px rgb(15 23 42 / 10%);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 6vw, 4.5rem);
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: 1.35rem;
+        margin-bottom: 14px;
+      }
+
+      h3 {
+        font-size: 1rem;
+        margin-bottom: 8px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      section {
+        margin-top: 22px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+      }
+
+      .eyebrow {
+        color: var(--brand);
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 14px;
+      }
+
+      .tile {
+        min-height: 140px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+
+      .kbd {
+        display: inline-flex;
+        min-width: 28px;
+        height: 28px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 8px;
+        border: 1px solid #cbd5e1;
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        min-height: 30px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--brand), white 84%);
+        color: #075985;
+        font-size: 0.85rem;
+        font-weight: 800;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .swatch {
+        width: 36px;
+        height: 36px;
+        border: 1px solid rgb(15 23 42 / 16%);
+        border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Vacan v1 MVP</span>
+        <h1>Editor visual minimo inspirado en Canva</h1>
+        <p>
+          Esta primera version prioriza una experiencia usable: subir imagenes, reutilizarlas desde un banco,
+          crear paginas apiladas, mover elementos libremente y transformar assets con controladores sobre el
+          canvas.
+        </p>
+        <div class="flow">
+          <span class="pill">React + Vite</span>
+          <span class="pill">Konva canvas</span>
+          <span class="pill">shadcn/ui</span>
+          <span class="pill">Vitest</span>
+        </div>
+      </header>
+
+      <section>
+        <h2>Que se puede hacer</h2>
+        <div class="grid">
+          <article class="tile">
+            <h3>Banco de imagenes</h3>
+            <p>Sube una o varias imagenes. Cada asset queda disponible en el panel izquierdo para reusarlo.</p>
+          </article>
+          <article class="tile">
+            <h3>Paginas verticales</h3>
+            <p>Crea multiples paginas. Se muestran una debajo de otra con conteo de capas y pagina activa.</p>
+          </article>
+          <article class="tile">
+            <h3>Elementos movibles</h3>
+            <p>Imagenes, textos y formas se arrastran libremente en cada canvas y muestran controladores al click.</p>
+          </article>
+          <article class="tile">
+            <h3>Texto y fuentes</h3>
+            <p>Agrega texto, edita el contenido, cambia tamano y selecciona entre varias familias tipograficas.</p>
+          </article>
+          <article class="tile">
+            <h3>Formas basicas</h3>
+            <p>Inserta cuadrados, circulos y triangulos con colores editables desde el inspector.</p>
+          </article>
+          <article class="tile">
+            <h3>Exportacion</h3>
+            <p>Exporta la pagina activa como PNG con pixel ratio alto para una salida nitida.</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Shortcuts incluidos</h2>
+        <ul>
+          <li><span class="kbd">Alt</span> + arrastrar un elemento deja una copia en la posicion original.</li>
+          <li><span class="kbd">Cmd</span> / <span class="kbd">Ctrl</span> + <span class="kbd">D</span> duplica el elemento seleccionado.</li>
+          <li><span class="kbd">T</span> agrega un texto en la pagina activa.</li>
+          <li><span class="kbd">Delete</span> / <span class="kbd">Backspace</span> elimina el elemento seleccionado.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Narrativa visual</h2>
+        <p>
+          La interfaz usa una estructura similar a Canva: barra superior compacta, panel izquierdo de herramientas y
+          assets, espacio central con paginas apiladas, e inspector derecho para propiedades. Los controles reutilizan
+          los componentes shadcn disponibles en el proyecto y los iconos vienen de lucide-react.
+        </p>
+        <div class="flow" style="margin-top: 16px">
+          <span class="swatch" style="background: #00c4cc"></span>
+          <span class="swatch" style="background: #8b5cf6"></span>
+          <span class="swatch" style="background: #14b8a6"></span>
+          <span class="swatch" style="background: #f59e0b"></span>
+          <span class="swatch" style="background: #111827"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Limites de v1</h2>
+        <ul>
+          <li>El documento vive en estado local del navegador; Convex queda listo en el repo, pero no conectado al flujo.</li>
+          <li>No hay edicion rich-text dentro del canvas; el texto se edita desde el inspector.</li>
+          <li>No hay plantillas, agrupacion, guias inteligentes, historial undo/redo ni colaboracion en tiempo real.</li>
+          <li>La exportacion actual es PNG de la pagina activa.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Calidad</h2>
+        <p>
+          La logica central de documento esta separada en <code>src/editor/document.ts</code> y cubierta por tests
+          unitarios en <code>src/editor/document.test.ts</code>: paginas, creacion de elementos, duplicacion,
+          escalado de imagenes, updates y borrado.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
