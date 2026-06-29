@@ -4,8 +4,16 @@ import Konva from "konva"
 import {
   AppWindow,
   AlignCenter,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalSpaceBetween,
   AlignLeft,
   AlignRight,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalSpaceBetween,
   Bold,
   BringToFront,
   ChartColumn,
@@ -63,6 +71,7 @@ import {
   FONT_OPTIONS,
   SHAPE_OPTIONS,
   addElementToPage,
+  alignElementToCanvas,
   createDefaultImageCrop,
   createImageElement,
   createInitialDocument,
@@ -70,6 +79,7 @@ import {
   createShapeElement,
   createTextElement,
   deleteElement,
+  distributePageElements,
   duplicateElement,
   duplicateElementBehind,
   findElement,
@@ -88,6 +98,8 @@ import {
   updateElement,
   type Asset,
   type CanvasElement,
+  type ElementAlignment,
+  type ElementDistributionAxis,
   type EditorDocument,
   type ImageMask,
   type Selection,
@@ -1203,6 +1215,24 @@ function EditorApp({
     )
   }
 
+  const alignSelectedToCanvas = (alignment: ElementAlignment) => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      alignElementToCanvas(currentDocument, selection.pageId, selection.elementId, alignment),
+    )
+  }
+
+  const distributeActivePageElements = (axis: ElementDistributionAxis) => {
+    if (!resolvedActivePageId) {
+      return
+    }
+
+    setDocument((currentDocument) => distributePageElements(currentDocument, resolvedActivePageId, axis))
+  }
+
   const duplicateBehindForAltDrag = (pageId: string, elementId: string) => {
     const dragKey = `${pageId}:${elementId}`
 
@@ -1380,6 +1410,18 @@ function EditorApp({
       { icon: Layers3, label: "Adelante", onClick: moveSelectedForward, disabled: !selectedElement },
       { icon: Layers3, label: "Atras", onClick: moveSelectedBackward, disabled: !selectedElement },
       { icon: Layers3, label: "Al fondo", onClick: moveSelectedToBack, disabled: !selectedElement },
+      {
+        icon: AlignHorizontalSpaceBetween,
+        label: "Distribuir horizontal",
+        onClick: () => distributeActivePageElements("horizontal"),
+        disabled: (activePage?.elements.length ?? 0) < 3,
+      },
+      {
+        icon: AlignVerticalSpaceBetween,
+        label: "Distribuir vertical",
+        onClick: () => distributeActivePageElements("vertical"),
+        disabled: (activePage?.elements.length ?? 0) < 3,
+      },
       {
         icon: Lock,
         label: selectedElement?.locked ? "Desbloquear" : "Bloquear",
@@ -2184,6 +2226,34 @@ function EditorApp({
                   value={selectedElement.name}
                   onChange={(event) => updateSelected({ name: event.target.value })}
                 />
+              </div>
+
+              <div className="space-y-3">
+                <Label>Alinear al lienzo</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { alignment: "left", icon: AlignHorizontalJustifyStart, label: "Alinear izquierda" },
+                    { alignment: "center", icon: AlignHorizontalJustifyCenter, label: "Alinear centro" },
+                    { alignment: "right", icon: AlignHorizontalJustifyEnd, label: "Alinear derecha" },
+                    { alignment: "top", icon: AlignVerticalJustifyStart, label: "Alinear arriba" },
+                    { alignment: "middle", icon: AlignVerticalJustifyCenter, label: "Alinear medio" },
+                    { alignment: "bottom", icon: AlignVerticalJustifyEnd, label: "Alinear abajo" },
+                  ].map((option) => {
+                    const Icon = option.icon
+
+                    return (
+                      <Button
+                        key={option.alignment}
+                        size="icon-sm"
+                        variant="outline"
+                        aria-label={option.label}
+                        onClick={() => alignSelectedToCanvas(option.alignment as ElementAlignment)}
+                      >
+                        <Icon />
+                      </Button>
+                    )
+                  })}
+                </div>
               </div>
 
               {selectedTextElement ? (

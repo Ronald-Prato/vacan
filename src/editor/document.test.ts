@@ -4,11 +4,13 @@ import {
   CANVAS_SIZE,
   addElementToPage,
   addPage,
+  alignElementToCanvas,
   createImageElement,
   createInitialDocument,
   createShapeElement,
   createTextElement,
   deleteElement,
+  distributePageElements,
   duplicateElement,
   duplicateElementBehind,
   findElement,
@@ -212,6 +214,64 @@ describe("editor document model", () => {
     expect(findElement(locked, { pageId, elementId: shape.id })).toMatchObject({ locked: true })
     expect(findElement(unlocked, { pageId, elementId: shape.id })).toMatchObject({ locked: false })
     expect(unlocked.pages[0].elements.map((element) => element.id)).toEqual([shape.id])
+  })
+
+  it("aligns selected elements to the document canvas", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = {
+      ...createShapeElement("rect", nextId),
+      x: 120,
+      y: 240,
+      width: 400,
+      height: 300,
+    }
+    const withShape = addElementToPage(document, pageId, shape)
+
+    const rightAligned = alignElementToCanvas(withShape, pageId, shape.id, "right")
+    const middleAligned = alignElementToCanvas(rightAligned, pageId, shape.id, "middle")
+
+    expect(findElement(rightAligned, { pageId, elementId: shape.id })).toMatchObject({
+      x: CANVAS_SIZE.width - shape.width,
+      y: 240,
+    })
+    expect(findElement(middleAligned, { pageId, elementId: shape.id })).toMatchObject({
+      x: CANVAS_SIZE.width - shape.width,
+      y: (CANVAS_SIZE.height - shape.height) / 2,
+    })
+  })
+
+  it("distributes page elements by center while preserving layer order", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = { ...createShapeElement("rect", nextId), x: 0, y: 10, width: 100, height: 100 }
+    const second = { ...createShapeElement("circle", nextId), x: 420, y: 50, width: 100, height: 100 }
+    const third = { ...createShapeElement("triangle", nextId), x: 900, y: 30, width: 100, height: 100 }
+    const withElements = [first, second, third].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    const distributed = distributePageElements(withElements, pageId, "horizontal")
+
+    expect(distributed.pages[0].elements.map((element) => element.id)).toEqual([first.id, second.id, third.id])
+    expect(distributed.pages[0].elements.map((element) => element.x)).toEqual([0, 450, 900])
+  })
+
+  it("keeps distribution unchanged when a page has fewer than three elements", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const first = createShapeElement("rect", nextId)
+    const second = createShapeElement("circle", nextId)
+    const withElements = [first, second].reduce(
+      (currentDocument, element) => addElementToPage(currentDocument, pageId, element),
+      document,
+    )
+
+    expect(distributePageElements(withElements, pageId, "vertical")).toEqual(withElements)
   })
 
   it("creates text with rich editing defaults", () => {

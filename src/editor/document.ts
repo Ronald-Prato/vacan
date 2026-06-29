@@ -40,6 +40,8 @@ export type TextAlign = "left" | "center" | "right"
 export type TextFontWeight = "normal" | "bold"
 export type TextFontStyle = "normal" | "italic"
 export type TextDecoration = "none" | "underline"
+export type ElementAlignment = "left" | "center" | "right" | "top" | "middle" | "bottom"
+export type ElementDistributionAxis = "horizontal" | "vertical"
 
 export type Asset = {
   id: string
@@ -499,6 +501,84 @@ export function toggleElementLocked(
   }))
 }
 
+export function alignElementToCanvas(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  alignment: ElementAlignment,
+): EditorDocument {
+  return updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      if (element.id !== elementId) {
+        return element
+      }
+
+      if (alignment === "left") {
+        return { ...element, x: 0 }
+      }
+
+      if (alignment === "center") {
+        return { ...element, x: (document.size.width - element.width) / 2 }
+      }
+
+      if (alignment === "right") {
+        return { ...element, x: document.size.width - element.width }
+      }
+
+      if (alignment === "top") {
+        return { ...element, y: 0 }
+      }
+
+      if (alignment === "middle") {
+        return { ...element, y: (document.size.height - element.height) / 2 }
+      }
+
+      return { ...element, y: document.size.height - element.height }
+    }),
+  }))
+}
+
+export function distributePageElements(
+  document: EditorDocument,
+  pageId: string,
+  axis: ElementDistributionAxis,
+): EditorDocument {
+  return updatePage(document, pageId, (page) => {
+    if (page.elements.length < 3) {
+      return page
+    }
+
+    const dimension = axis === "horizontal" ? "width" : "height"
+    const position = axis === "horizontal" ? "x" : "y"
+    const sortedElements = [...page.elements].sort(
+      (first, second) => getElementCenter(first, position, dimension) - getElementCenter(second, position, dimension),
+    )
+    const firstCenter = getElementCenter(sortedElements[0], position, dimension)
+    const lastCenter = getElementCenter(sortedElements[sortedElements.length - 1], position, dimension)
+
+    if (firstCenter === lastCenter) {
+      return page
+    }
+
+    const gap = (lastCenter - firstCenter) / (sortedElements.length - 1)
+    const nextPositionById = new Map(
+      sortedElements.map((element, index) => [
+        element.id,
+        firstCenter + gap * index - element[dimension] / 2,
+      ]),
+    )
+
+    return {
+      ...page,
+      elements: page.elements.map((element) => ({
+        ...element,
+        [position]: nextPositionById.get(element.id) ?? element[position],
+      })),
+    }
+  })
+}
+
 export function updateTextStyle(
   document: EditorDocument,
   pageId: string,
@@ -638,6 +718,14 @@ function normalizeImageCrop(crop: Partial<ImageCrop> | undefined): ImageCrop {
     width,
     height,
   }
+}
+
+function getElementCenter(
+  element: CanvasElement,
+  position: "x" | "y",
+  dimension: "width" | "height",
+) {
+  return element[position] + element[dimension] / 2
 }
 
 function clamp(value: number, min: number, max: number) {
