@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react"
+import { useConvex, useMutation, useQuery } from "convex/react"
 import Konva from "konva"
 import {
   AppWindow,
@@ -70,6 +71,14 @@ import {
   type Selection,
   type ShapeType,
 } from "@/editor/document"
+import {
+  createDocumentFingerprint,
+  createProjectSavePayload,
+  isEditorDocument,
+  summarizeProjectRecord,
+  type ProjectRecord,
+  type SavedProject,
+} from "@/editor/projects"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -78,12 +87,22 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { api } from "../convex/_generated/api"
+import type { Id } from "../convex/_generated/dataModel"
 
 type StageMap = Record<string, Konva.Stage | null>
 type SnapPreview = {
   pageId: string
   guides: SnapGuide[]
 } | null
+type AutosaveStatus = "local" | "saved" | "saving" | "loading" | "error"
+type ProjectPersistence = {
+  isEnabled: boolean
+  isLoading: boolean
+  projects: SavedProject[]
+  saveProject: (projectId: string | null, document: EditorDocument) => Promise<string | null>
+  loadProject: (projectId: string) => Promise<EditorDocument | null>
+}
 
 const colorSwatches = ["#111827", "#ffffff", "#ef4444", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6"]
 const backgroundSwatches = ["#ffffff", "#f8fafc", "#fef3c7", "#d9f99d", "#ccfbf1", "#dbeafe", "#ede9fe", "#111827"]
@@ -91,6 +110,15 @@ const SHOW_INSPECTOR = false
 const SHAPE_DRAG_MIME = "application/x-vacan-shape"
 const MAX_CANVAS_PREVIEW_SIZE = 720
 const SNAP_THRESHOLD_SCREEN_PX = 8
+const AUTOSAVE_DELAY_MS = 900
+
+const localProjectPersistence: ProjectPersistence = {
+  isEnabled: false,
+  isLoading: false,
+  projects: [],
+  saveProject: async () => null,
+  loadProject: async () => null,
+}
 
 type ToolId =
   | "templates"
@@ -416,8 +444,13 @@ function ToolAction({
   )
 }
 
-function App() {
+function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const [document, setDocument] = useState<EditorDocument>(() => createInitialDocument(createId))
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>(
+    persistence.isEnabled ? "saved" : "local",
+  )
+  const [autosaveError, setAutosaveError] = useState("")
   const [assets, setAssets] = useState<Asset[]>([])
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
@@ -429,6 +462,7 @@ function App() {
   const canvasViewportRef = useRef<HTMLDivElement>(null)
   const stageRefs = useRef<StageMap>({})
   const altDuplicatedDragRef = useRef<string | null>(null)
+  const lastSavedFingerprintRef = useRef(createDocumentFingerprint(document))
   const [canvasPreviewSize, setCanvasPreviewSize] = useState(MAX_CANVAS_PREVIEW_SIZE)
 
   const resolvedActivePageId = selection?.pageId ?? activePageId ?? document.pages[0]?.id
@@ -480,6 +514,119 @@ function App() {
 
     return () => window.clearTimeout(timeoutId)
   }, [animatingPageId])
+
+  useEffect(() => {
+    if (!persistence.isEnabled) {
+      setAutosaveStatus("local")
+      return
+    }
+
+    const fingerprint = createDocumentFingerprint(document)
+
+    if (fingerprint === lastSavedFingerprintRef.current) {
+      return
+    }
+
+    setAutosaveStatus("saving")
+    setAutosaveError("")
+
+    let isCancelled = false
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const savedProjectId = await persistence.saveProject(currentProjectId, document)
+
+          if (isCancelled) {
+            return
+          }
+
+          if (savedProjectId) {
+            setCurrentProjectId(savedProjectId)
+          }
+
+          lastSavedFingerprintRef.current = createDocumentFingerprint(document)
+          setAutosaveStatus("saved")
+        } catch (error) {
+          if (isCancelled) {
+            return
+          }
+
+          setAutosaveError(error instanceof Error ? error.message : "No se pudo guardar el proyecto")
+          setAutosaveStatus("error")
+        }
+      })()
+    }, AUTOSAVE_DELAY_MS)
+
+    return () => {
+      isCancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [currentProjectId, document, persistence])
+
+  const saveCurrentProject = useCallback(async () => {
+    if (!persistence.isEnabled) {
+      return
+    }
+
+    setAutosaveStatus("saving")
+    setAutosaveError("")
+
+    try {
+      const savedProjectId = await persistence.saveProject(currentProjectId, document)
+
+      if (savedProjectId) {
+        setCurrentProjectId(savedProjectId)
+      }
+
+      lastSavedFingerprintRef.current = createDocumentFingerprint(document)
+      setAutosaveStatus("saved")
+    } catch (error) {
+      setAutosaveError(error instanceof Error ? error.message : "No se pudo guardar el proyecto")
+      setAutosaveStatus("error")
+    }
+  }, [currentProjectId, document, persistence])
+
+  const openProject = useCallback(
+    async (projectId: string) => {
+      if (!persistence.isEnabled) {
+        return
+      }
+
+      setAutosaveStatus("loading")
+      setAutosaveError("")
+
+      try {
+        const loadedDocument = await persistence.loadProject(projectId)
+
+        if (!loadedDocument) {
+          throw new Error("El proyecto no tiene un canvas valido")
+        }
+
+        setDocument(loadedDocument)
+        setCurrentProjectId(projectId)
+        setActivePageId(loadedDocument.pages[0]?.id ?? null)
+        setSelection(null)
+        lastSavedFingerprintRef.current = createDocumentFingerprint(loadedDocument)
+        setAutosaveStatus("saved")
+      } catch (error) {
+        setAutosaveError(error instanceof Error ? error.message : "No se pudo abrir el proyecto")
+        setAutosaveStatus("error")
+      }
+    },
+    [persistence],
+  )
+
+  const startNewProject = useCallback(() => {
+    const nextDocument = createInitialDocument(createId)
+
+    setDocument(nextDocument)
+    setCurrentProjectId(null)
+    setActivePageId(nextDocument.pages[0]?.id ?? null)
+    setSelection(null)
+    lastSavedFingerprintRef.current = createDocumentFingerprint(nextDocument)
+    setAutosaveError("")
+    setAutosaveStatus(persistence.isEnabled ? "saved" : "local")
+  }, [persistence.isEnabled])
 
   const setDocumentName = (name: string) => {
     setDocument((currentDocument) => ({ ...currentDocument, name }))
@@ -718,6 +865,17 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   })
 
+  const autosaveLabel =
+    autosaveStatus === "local"
+      ? "Local"
+      : autosaveStatus === "saving"
+        ? "Guardando"
+        : autosaveStatus === "loading"
+          ? "Abriendo"
+          : autosaveStatus === "error"
+            ? "Sin guardar"
+            : "Guardado"
+
   const renderToolPanel = () => {
     if (activeTool === "elements") {
       return (
@@ -831,19 +989,65 @@ function App() {
       return (
         <>
           <PanelSearch placeholder="Busca proyectos" />
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              className="border-white/15 bg-transparent text-slate-100 hover:bg-white/10"
+              variant="outline"
+              onClick={startNewProject}
+            >
+              <Plus data-icon="inline-start" />
+              Nuevo
+            </Button>
+            <Button
+              className="bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
+              onClick={saveCurrentProject}
+              disabled={!persistence.isEnabled || autosaveStatus === "saving"}
+            >
+              <CloudUpload data-icon="inline-start" />
+              Guardar
+            </Button>
+          </div>
+          {!persistence.isEnabled ? (
+            <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm leading-6 text-slate-400">
+              Configura VITE_CONVEX_URL para guardar y abrir proyectos con Convex.
+            </div>
+          ) : null}
+          {autosaveError ? (
+            <div className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-100">
+              {autosaveError}
+            </div>
+          ) : null}
           <div className="space-y-2">
-            {document.pages.map((page, index) => (
+            {persistence.isLoading ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Cargando proyectos...
+              </div>
+            ) : null}
+            {persistence.isEnabled && !persistence.isLoading && persistence.projects.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Guarda tu primer diseno para verlo aqui.
+              </div>
+            ) : null}
+            {persistence.projects.map((project) => (
               <button
-                key={page.id}
+                key={project.id}
                 type="button"
-                className="flex w-full items-center justify-between rounded-md border border-white/10 bg-[#20222b] px-3 py-3 text-left text-sm text-slate-200 transition hover:border-[#00c4cc]"
+                className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-3 text-left text-sm text-slate-200 transition hover:border-[#00c4cc] ${
+                  project.id === currentProjectId ? "border-[#00c4cc] bg-[#132b35]" : "border-white/10 bg-[#20222b]"
+                }`}
                 onClick={() => {
-                  setActivePageId(page.id)
-                  setSelection(null)
+                  void openProject(project.id)
                 }}
               >
-                <span className="font-semibold">Pagina {index + 1}</span>
-                <span className="text-xs text-slate-400">{page.elements.length} capas</span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{project.name}</span>
+                  <span className="text-xs text-slate-400">
+                    {project.pageCount} paginas - {project.elementCount} elementos
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs text-slate-500">
+                  {new Date(project.updatedAt).toLocaleDateString()}
+                </span>
               </button>
             ))}
           </div>
@@ -907,6 +1111,14 @@ function App() {
           <Button variant="ghost" className="hidden text-white hover:bg-white/15 sm:inline-flex">
             Archivo
           </Button>
+          <Button
+            variant="ghost"
+            className="hidden text-white hover:bg-white/15 sm:inline-flex"
+            onClick={saveCurrentProject}
+            disabled={!persistence.isEnabled || autosaveStatus === "saving"}
+          >
+            Guardar
+          </Button>
           <Button variant="ghost" className="hidden text-white hover:bg-white/15 sm:inline-flex">
             Redimensionar
           </Button>
@@ -915,7 +1127,7 @@ function App() {
             Editar
             <ChevronDown data-icon="inline-end" />
           </Button>
-          <Badge className="hidden border-white/20 bg-white/16 text-white sm:inline-flex">Nuevo</Badge>
+          <Badge className="hidden border-white/20 bg-white/16 text-white sm:inline-flex">{autosaveLabel}</Badge>
         </div>
 
         <div className="flex min-w-0 flex-1 justify-center">
@@ -1381,6 +1593,68 @@ function App() {
       </div>
     </main>
   )
+}
+
+function ConvexBackedApp() {
+  const convex = useConvex()
+  const projectRecords = useQuery(api.projects.list) as ProjectRecord[] | undefined
+  const createProject = useMutation(api.projects.create)
+  const updateProject = useMutation(api.projects.updateCanvas)
+
+  const projects = useMemo(
+    () => (projectRecords ?? []).map((project) => summarizeProjectRecord(project)),
+    [projectRecords],
+  )
+
+  const saveProject = useCallback(
+    async (projectId: string | null, document: EditorDocument) => {
+      const payload = createProjectSavePayload(document)
+
+      if (projectId) {
+        await updateProject({
+          id: projectId as Id<"projects">,
+          ...payload,
+        })
+
+        return projectId
+      }
+
+      return (await createProject(payload)) as string
+    },
+    [createProject, updateProject],
+  )
+
+  const loadProject = useCallback(
+    async (projectId: string) => {
+      const project = (await convex.query(api.projects.get, {
+        id: projectId as Id<"projects">,
+      })) as ProjectRecord | null
+
+      return project && isEditorDocument(project.canvas) ? project.canvas : null
+    },
+    [convex],
+  )
+
+  const persistence = useMemo<ProjectPersistence>(
+    () => ({
+      isEnabled: true,
+      isLoading: projectRecords === undefined,
+      projects,
+      saveProject,
+      loadProject,
+    }),
+    [loadProject, projectRecords, projects, saveProject],
+  )
+
+  return <EditorApp persistence={persistence} />
+}
+
+function App() {
+  if (import.meta.env.VITE_CONVEX_URL) {
+    return <ConvexBackedApp />
+  }
+
+  return <EditorApp persistence={localProjectPersistence} />
 }
 
 export default App

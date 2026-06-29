@@ -5,7 +5,30 @@ import { mutation, query } from "./_generated/server"
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("projects").order("desc").collect()
+    const projects = await ctx.db.query("projects").order("desc").take(50)
+
+    return projects.map((project) => ({
+      _id: project._id,
+      name: project.name,
+      updatedAt: project.updatedAt,
+      pageCount: Array.isArray(project.canvas?.pages) ? project.canvas.pages.length : 0,
+      elementCount: Array.isArray(project.canvas?.pages)
+        ? project.canvas.pages.reduce(
+            (count: number, page: { elements?: unknown[] }) =>
+              count + (Array.isArray(page.elements) ? page.elements.length : 0),
+            0,
+          )
+        : 0,
+    }))
+  },
+})
+
+export const get = query({
+  args: {
+    id: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id)
   },
 })
 

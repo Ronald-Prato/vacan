@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vacan Editor Architecture"
+  short_description: "Keep Vacan editor changes scalable and tested."
+  default_prompt: "Use $vacan-editor-architecture to implement a Vacan editor feature with TDD and clean boundaries."

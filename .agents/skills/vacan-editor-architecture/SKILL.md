@@ -1,0 +1,66 @@
+---
+name: vacan-editor-architecture
+description: Use when implementing, refactoring, or reviewing Vacan editor features so changes stay TDD-first, modular, Convex-safe, and maintainable across canvas, project persistence, templates, assets, export, and collaboration work.
+---
+
+# Vacan Editor Architecture
+
+## Overview
+
+Use this skill for non-trivial Vacan feature work. It captures the local
+architecture rules that keep the Canva-like editor scalable while the product
+surface grows.
+
+## Workflow
+
+1. Read `AGENTS.md`. If touching Convex code, read
+   `convex/_generated/ai/guidelines.md` before edits.
+2. Identify the narrow product feature being advanced. Keep each commit scoped
+   to one coherent feature or foundation layer.
+3. Write tests first for pure behavior whenever possible. Prefer tests under
+   `src/editor/*.test.ts` for document, layout, snapping, project, export, and
+   template logic.
+4. Put deterministic editor behavior in framework-light modules under
+   `src/editor/`. React components should orchestrate UI and delegate rules to
+   those modules.
+5. Keep external systems behind adapters. The canvas editor should accept
+   injected persistence or service contracts instead of importing backend calls
+   deep inside canvas logic.
+6. Run `pnpm test`, `pnpm lint`, and `pnpm build` before each feature commit.
+7. Commit with a clear message and push `main` after the feature is tested.
+
+## Code Boundaries
+
+- `src/editor/document.ts`: canonical in-memory document model and operations.
+- `src/editor/projects.ts`: project persistence helpers, summaries, validation,
+  autosave fingerprints, and save payload shaping.
+- `src/editor/snapping.ts`: guides, alignment, and drag math.
+- `src/App.tsx`: UI composition and injected adapters. Avoid adding business
+  logic here if it can be tested in `src/editor`.
+- `convex/*.ts`: backend storage and query/mutation/action boundaries.
+
+## Convex Rules
+
+- Never use unbounded `.collect()` for project lists. Use `.take(n)` or
+  pagination.
+- List queries should return summaries when possible. Fetch full canvas data
+  only for explicit open/edit flows.
+- All public Convex functions need validators.
+- Keep high-churn collaboration or presence state separate from stable project
+  documents when collaboration is introduced.
+
+## UI Rules
+
+- Preserve the Canva-like dense editor: sidebar tools, central canvas, compact
+  controls, and direct manipulation.
+- Do not turn editor features into marketing pages.
+- Prefer visible, feature-complete controls over placeholder copy.
+- Keep disabled or local-only states explicit when Convex is not configured.
+
+## Testing Targets
+
+- Document mutations: id stability, page counts, z-order, duplicate behavior.
+- Layout helpers: snapping, resize, positioning, template placement.
+- Project helpers: save payloads, validation, summary counts, autosave change
+  detection.
+- Export helpers: file type, page selection, scaling, transparency options.
