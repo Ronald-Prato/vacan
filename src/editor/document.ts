@@ -53,6 +53,13 @@ export type ImageFilters = {
   saturation: number
   blur: number
 }
+export type ImageCrop = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+export type ImageMask = "none" | "rounded" | "circle"
 
 export type BaseElement = {
   id: string
@@ -71,9 +78,13 @@ export type ImageElement = BaseElement & {
   assetId: string
   src: string
   filters: ImageFilters
+  crop: ImageCrop
+  mask: ImageMask
 }
-type ImageElementWithOptionalFilters = Omit<ImageElement, "filters"> & {
+type ImageElementWithOptionalEditing = Omit<ImageElement, "filters" | "crop" | "mask"> & {
   filters?: Partial<ImageFilters>
+  crop?: Partial<ImageCrop>
+  mask?: ImageMask
 }
 
 export type TextElement = BaseElement & {
@@ -180,6 +191,8 @@ export function createImageElement({
     opacity: 1,
     locked: false,
     filters: createDefaultImageFilters(),
+    crop: createDefaultImageCrop(),
+    mask: "none",
   }
 }
 
@@ -266,13 +279,24 @@ export function createDefaultImageFilters(): ImageFilters {
   }
 }
 
-export function normalizeImageElement(element: ImageElementWithOptionalFilters): ImageElement {
+export function createDefaultImageCrop(): ImageCrop {
+  return {
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
+  }
+}
+
+export function normalizeImageElement(element: ImageElementWithOptionalEditing): ImageElement {
   return {
     ...element,
     filters: {
       ...createDefaultImageFilters(),
       ...element.filters,
     },
+    crop: normalizeImageCrop(element.crop),
+    mask: element.mask ?? "none",
   }
 }
 
@@ -545,6 +569,75 @@ export function updateImageFilters(
   }))
 
   return didUpdate ? nextDocument : document
+}
+
+export function updateImageCrop(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  changes: Partial<ImageCrop>,
+): EditorDocument {
+  let didUpdate = false
+  const nextDocument = updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      if (element.id !== elementId || element.type !== "image") {
+        return element
+      }
+
+      didUpdate = true
+      const imageElement = normalizeImageElement(element)
+
+      return {
+        ...imageElement,
+        crop: normalizeImageCrop({
+          ...imageElement.crop,
+          ...changes,
+        }),
+      }
+    }),
+  }))
+
+  return didUpdate ? nextDocument : document
+}
+
+export function updateImageMask(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  mask: ImageMask,
+): EditorDocument {
+  let didUpdate = false
+  const nextDocument = updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      if (element.id !== elementId || element.type !== "image") {
+        return element
+      }
+
+      didUpdate = true
+
+      return {
+        ...normalizeImageElement(element),
+        mask,
+      }
+    }),
+  }))
+
+  return didUpdate ? nextDocument : document
+}
+
+function normalizeImageCrop(crop: Partial<ImageCrop> | undefined): ImageCrop {
+  const defaults = createDefaultImageCrop()
+  const width = clamp(crop?.width ?? defaults.width, 0.05, 1)
+  const height = clamp(crop?.height ?? defaults.height, 0.05, 1)
+
+  return {
+    x: clamp(crop?.x ?? defaults.x, 0, 1 - width),
+    y: clamp(crop?.y ?? defaults.y, 0, 1 - height),
+    width,
+    height,
+  }
 }
 
 function clamp(value: number, min: number, max: number) {

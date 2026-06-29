@@ -63,6 +63,7 @@ import {
   FONT_OPTIONS,
   SHAPE_OPTIONS,
   addElementToPage,
+  createDefaultImageCrop,
   createImageElement,
   createInitialDocument,
   createDefaultImageFilters,
@@ -80,12 +81,15 @@ import {
   normalizeImageElement,
   normalizeTextElement,
   toggleElementLocked,
+  updateImageCrop,
   updateImageFilters,
+  updateImageMask,
   updateTextStyle,
   updateElement,
   type Asset,
   type CanvasElement,
   type EditorDocument,
+  type ImageMask,
   type Selection,
   type ShapeType,
 } from "@/editor/document"
@@ -315,7 +319,16 @@ function EditableImage({
   const image = useCanvasImage(element.src)
   const imageElement = normalizeImageElement(element)
   const { filters } = imageElement
+  const { crop } = imageElement
   const hasBlur = filters.blur > 0
+  const sourceWidth = image?.naturalWidth || image?.width || 1
+  const sourceHeight = image?.naturalHeight || image?.height || 1
+  const cropConfig = {
+    x: Math.round(sourceWidth * crop.x),
+    y: Math.round(sourceHeight * crop.y),
+    width: Math.round(sourceWidth * crop.width),
+    height: Math.round(sourceHeight * crop.height),
+  }
   const konvaFilters = useMemo(
     () => [
       Konva.Filters.Brighten,
@@ -342,18 +355,45 @@ function EditableImage({
   }, [image, filters.brightness, filters.contrast, filters.saturation, filters.blur])
 
   return (
-    <KonvaImage
-      ref={imageRef}
-      image={image ?? undefined}
-      width={element.width}
-      height={element.height}
-      opacity={element.opacity}
-      filters={konvaFilters}
-      brightness={filters.brightness}
-      contrast={filters.contrast}
-      saturation={filters.saturation}
-      blurRadius={filters.blur}
-    />
+    <KonvaGroup
+      clipFunc={
+        imageElement.mask === "none"
+          ? undefined
+          : (context) => {
+              if (imageElement.mask === "circle") {
+                const radius = Math.min(element.width, element.height) / 2
+                context.arc(element.width / 2, element.height / 2, radius, 0, Math.PI * 2)
+                return
+              }
+
+              const radius = Math.min(72, element.width / 5, element.height / 5)
+              context.moveTo(radius, 0)
+              context.lineTo(element.width - radius, 0)
+              context.quadraticCurveTo(element.width, 0, element.width, radius)
+              context.lineTo(element.width, element.height - radius)
+              context.quadraticCurveTo(element.width, element.height, element.width - radius, element.height)
+              context.lineTo(radius, element.height)
+              context.quadraticCurveTo(0, element.height, 0, element.height - radius)
+              context.lineTo(0, radius)
+              context.quadraticCurveTo(0, 0, radius, 0)
+              context.closePath()
+            }
+      }
+    >
+      <KonvaImage
+        ref={imageRef}
+        image={image ?? undefined}
+        width={element.width}
+        height={element.height}
+        opacity={element.opacity}
+        crop={cropConfig}
+        filters={konvaFilters}
+        brightness={filters.brightness}
+        contrast={filters.contrast}
+        saturation={filters.saturation}
+        blurRadius={filters.blur}
+      />
+    </KonvaGroup>
   )
 }
 
@@ -1039,6 +1079,24 @@ function EditorApp({
     setDocument((currentDocument) =>
       updateImageFilters(currentDocument, selection.pageId, selection.elementId, changes),
     )
+  }
+
+  const updateSelectedImageCrop = (changes: Parameters<typeof updateImageCrop>[3]) => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      updateImageCrop(currentDocument, selection.pageId, selection.elementId, changes),
+    )
+  }
+
+  const updateSelectedImageMask = (mask: ImageMask) => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) => updateImageMask(currentDocument, selection.pageId, selection.elementId, mask))
   }
 
   const submitComment = async () => {
@@ -2274,6 +2332,96 @@ function EditorApp({
 
               {selectedImageElement ? (
                 <>
+                  <div className="space-y-3">
+                    <Label>Mascara</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: "none", label: "Ninguna" },
+                        { value: "rounded", label: "Bordes" },
+                        { value: "circle", label: "Circulo" },
+                      ].map((option) => (
+                        <Button
+                          key={option.value}
+                          type="button"
+                          variant={selectedImageElement.mask === option.value ? "default" : "outline"}
+                          onClick={() => updateSelectedImageMask(option.value as ImageMask)}
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Recorte X</Label>
+                      <span className="text-xs text-slate-400">{Math.round(selectedImageElement.crop.x * 100)}%</span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.crop.x]}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onValueChange={([x]) => updateSelectedImageCrop({ x })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Recorte Y</Label>
+                      <span className="text-xs text-slate-400">{Math.round(selectedImageElement.crop.y * 100)}%</span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.crop.y]}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onValueChange={([y]) => updateSelectedImageCrop({ y })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Ancho visible</Label>
+                      <span className="text-xs text-slate-400">
+                        {Math.round(selectedImageElement.crop.width * 100)}%
+                      </span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.crop.width]}
+                      min={0.05}
+                      max={1}
+                      step={0.01}
+                      onValueChange={([width]) => updateSelectedImageCrop({ width })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Alto visible</Label>
+                      <span className="text-xs text-slate-400">
+                        {Math.round(selectedImageElement.crop.height * 100)}%
+                      </span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.crop.height]}
+                      min={0.05}
+                      max={1}
+                      step={0.01}
+                      onValueChange={([height]) => updateSelectedImageCrop({ height })}
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => updateSelectedImageCrop(createDefaultImageCrop())}
+                  >
+                    <ImageIcon data-icon="inline-start" />
+                    Restablecer recorte
+                  </Button>
+
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label>Brillo</Label>

@@ -20,7 +20,9 @@ import {
   normalizeTextElement,
   pageElementCount,
   toggleElementLocked,
+  updateImageCrop,
   updateImageFilters,
+  updateImageMask,
   updateTextStyle,
   updateElement,
   type Asset,
@@ -81,6 +83,13 @@ describe("editor document model", () => {
       saturation: 0,
       blur: 0,
     })
+    expect(element.crop).toEqual({
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    })
+    expect(element.mask).toBe("none")
   })
 
   it("adds and updates elements inside a page", () => {
@@ -310,6 +319,8 @@ describe("editor document model", () => {
         createId: () => "image-1",
       }),
       filters: undefined,
+      crop: undefined,
+      mask: undefined,
     }
 
     expect(normalizeImageElement(legacyImage)).toMatchObject({
@@ -319,6 +330,13 @@ describe("editor document model", () => {
         saturation: 0,
         blur: 0,
       },
+      crop: {
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+      mask: "none",
     })
   })
 
@@ -332,5 +350,75 @@ describe("editor document model", () => {
     const updated = updateImageFilters(withShape, pageId, shape.id, { brightness: 1 })
 
     expect(updated).toEqual(withShape)
+  })
+
+  it("updates image crop with bounded normalized values", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const image = createImageElement({
+      asset,
+      imageSize: { width: 1000, height: 600 },
+      createId: nextId,
+    })
+    const withImage = addElementToPage(document, pageId, image)
+
+    const cropped = updateImageCrop(withImage, pageId, image.id, {
+      x: 0.9,
+      y: -1,
+      width: 0.4,
+      height: 2,
+    })
+
+    expect(findElement(cropped, { pageId, elementId: image.id })).toMatchObject({
+      crop: {
+        x: 0.6,
+        y: 0,
+        width: 0.4,
+        height: 1,
+      },
+    })
+  })
+
+  it("updates image masks without changing crop or filters", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const image = createImageElement({
+      asset,
+      imageSize: { width: 1000, height: 600 },
+      createId: nextId,
+    })
+    const withImage = addElementToPage(document, pageId, image)
+    const cropped = updateImageCrop(withImage, pageId, image.id, { x: 0.2, width: 0.7 })
+
+    const masked = updateImageMask(cropped, pageId, image.id, "rounded")
+
+    expect(findElement(masked, { pageId, elementId: image.id })).toMatchObject({
+      mask: "rounded",
+      crop: {
+        x: 0.2,
+        y: 0,
+        width: 0.7,
+        height: 1,
+      },
+      filters: {
+        brightness: 0,
+        contrast: 0,
+        saturation: 0,
+        blur: 0,
+      },
+    })
+  })
+
+  it("ignores crop and mask updates for non-image elements", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = createShapeElement("rect", nextId)
+    const withShape = addElementToPage(document, pageId, shape)
+
+    expect(updateImageCrop(withShape, pageId, shape.id, { width: 0.5 })).toEqual(withShape)
+    expect(updateImageMask(withShape, pageId, shape.id, "circle")).toEqual(withShape)
   })
 })
