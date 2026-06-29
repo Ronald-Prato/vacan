@@ -73,6 +73,7 @@ export type BaseElement = {
   rotation: number
   opacity: number
   locked: boolean
+  visible?: boolean
 }
 
 export type ImageElement = BaseElement & {
@@ -192,6 +193,7 @@ export function createImageElement({
     rotation: 0,
     opacity: 1,
     locked: false,
+    visible: true,
     filters: createDefaultImageFilters(),
     crop: createDefaultImageCrop(),
     mask: "none",
@@ -217,6 +219,7 @@ export function createTextElement(
     rotation: 0,
     opacity: 1,
     locked: false,
+    visible: true,
     fontFamily: "Geist Variable",
     fontSize: 184,
     fill: "#111827",
@@ -255,6 +258,7 @@ export function createShapeElement(
     rotation: 0,
     opacity: 1,
     locked: false,
+    visible: true,
     fill: preset.fill,
     stroke: "#0f172a",
   }
@@ -497,6 +501,19 @@ export function toggleElementLocked(
     ...page,
     elements: page.elements.map((element) =>
       element.id === elementId ? { ...element, locked: !element.locked } : element,
+    ),
+  }))
+}
+
+export function toggleElementVisibility(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+): EditorDocument {
+  return updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) =>
+      element.id === elementId ? { ...element, visible: !(element.visible ?? true) } : element,
     ),
   }))
 }

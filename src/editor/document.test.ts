@@ -22,6 +22,7 @@ import {
   normalizeTextElement,
   pageElementCount,
   toggleElementLocked,
+  toggleElementVisibility,
   updateImageCrop,
   updateImageFilters,
   updateImageMask,
@@ -214,6 +215,36 @@ describe("editor document model", () => {
     expect(findElement(locked, { pageId, elementId: shape.id })).toMatchObject({ locked: true })
     expect(findElement(unlocked, { pageId, elementId: shape.id })).toMatchObject({ locked: false })
     expect(unlocked.pages[0].elements.map((element) => element.id)).toEqual([shape.id])
+  })
+
+  it("creates visible layers by default and toggles layer visibility", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = createShapeElement("rect", nextId)
+    const withShape = addElementToPage(document, pageId, shape)
+
+    const hidden = toggleElementVisibility(withShape, pageId, shape.id)
+    const visible = toggleElementVisibility(hidden, pageId, shape.id)
+
+    expect(shape.visible).toBe(true)
+    expect(findElement(hidden, { pageId, elementId: shape.id })).toMatchObject({ visible: false })
+    expect(findElement(visible, { pageId, elementId: shape.id })).toMatchObject({ visible: true })
+  })
+
+  it("treats older layers without visibility as visible before toggling", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const legacyShape = {
+      ...createShapeElement("rect", nextId),
+      visible: undefined,
+    }
+    const withShape = addElementToPage(document, pageId, legacyShape)
+
+    const hidden = toggleElementVisibility(withShape, pageId, legacyShape.id)
+
+    expect(findElement(hidden, { pageId, elementId: legacyShape.id })).toMatchObject({ visible: false })
   })
 
   it("aligns selected elements to the document canvas", () => {

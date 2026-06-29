@@ -284,6 +284,7 @@ function shape(
     rotation: 0,
     opacity: 1,
     locked: false,
+    visible: true,
     fill,
     stroke: "transparent",
   }
@@ -312,6 +313,7 @@ function text(
     rotation: 0,
     opacity: 1,
     locked: false,
+    visible: true,
     fontFamily: "Geist Variable",
     fontSize,
     fill,

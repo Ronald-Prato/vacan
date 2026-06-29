@@ -24,6 +24,8 @@ import {
   CopyPlus,
   Crown,
   Download,
+  Eye,
+  EyeOff,
   Folder,
   Grid2x2,
   Home,
@@ -91,6 +93,7 @@ import {
   normalizeImageElement,
   normalizeTextElement,
   toggleElementLocked,
+  toggleElementVisibility,
   updateImageCrop,
   updateImageFilters,
   updateImageMask,
@@ -269,6 +272,7 @@ const localSharedTemplatePersistence: SharedTemplatePersistence = {
 
 type ToolId =
   | "templates"
+  | "layers"
   | "elements"
   | "text"
   | "brand"
@@ -290,6 +294,7 @@ type SidebarTool = {
 
 const sidebarTools: SidebarTool[] = [
   { id: "templates", label: "Plantillas", icon: LayoutTemplate },
+  { id: "layers", label: "Capas", icon: Layers3 },
   { id: "elements", label: "Elementos", icon: Shapes },
   { id: "text", label: "Texto", icon: Type },
   { id: "brand", label: "Marca", icon: Crown },
@@ -519,6 +524,7 @@ function EditableElement({
   const groupRef = useRef<Konva.Group>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const textElement = element.type === "text" ? normalizeTextElement(element) : null
+  const isVisible = element.visible ?? true
 
   useEffect(() => {
     if (!isSelected || !groupRef.current || !transformerRef.current) {
@@ -553,6 +559,10 @@ function EditableElement({
       height: Math.max(28, element.height * scaleY),
       rotation: node.rotation(),
     })
+  }
+
+  if (!isVisible) {
+    return null
   }
 
   return (
@@ -1333,6 +1343,10 @@ function EditorApp({
     )
   }
 
+  const toggleLayerVisibility = (pageId: string, elementId: string) => {
+    setDocument((currentDocument) => toggleElementVisibility(currentDocument, pageId, elementId))
+  }
+
   const alignSelectedToCanvas = (alignment: ElementAlignment) => {
     if (!selection?.elementId) {
       return
@@ -1564,6 +1578,8 @@ function EditorApp({
       "description",
       "authorName",
     ])
+    const layerItems = [...(activePage?.elements ?? [])].reverse()
+    const filteredLayerItems = filterSearchItems(layerItems, panelSearchQuery, ["name", "type"])
     const toolActions = [
       { icon: MousePointer2, label: "Seleccionar", onClick: () => setSelection(null), disabled: false },
       { icon: Undo2, label: "Deshacer", onClick: undoDocument, disabled: !canUndo },
@@ -1619,6 +1635,89 @@ function EditorApp({
                   <Icon className="size-6" style={{ color: shape.fill }} />
                   {shape.label}
                 </button>
+              )
+            })}
+          </div>
+        </>
+      )
+    }
+
+    if (activeTool === "layers") {
+      return (
+        <>
+          {renderPanelSearch("Busca capas")}
+          <div className="space-y-2">
+            {!activePage || activePage.elements.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                Agrega elementos para ver tus capas aqui.
+              </div>
+            ) : null}
+            {activePage && activePage.elements.length > 0 && filteredLayerItems.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                No hay capas para esa busqueda.
+              </div>
+            ) : null}
+            {filteredLayerItems.map((element) => {
+              const isLayerSelected = selection?.pageId === activePage?.id && selection.elementId === element.id
+              const isLayerVisible = element.visible ?? true
+
+              return (
+                <div
+                  key={element.id}
+                  className={`flex items-center gap-2 rounded-md border px-2 py-2 text-sm transition ${
+                    isLayerSelected ? "border-[#00c4cc] bg-[#132b35]" : "border-white/10 bg-[#20222b]"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => {
+                      if (!activePage) {
+                        return
+                      }
+
+                      setActivePageId(activePage.id)
+                      setSelection({ pageId: activePage.id, elementId: element.id })
+                    }}
+                  >
+                    <span className="block truncate font-semibold text-slate-100">{element.name}</span>
+                    <span className="text-xs text-slate-500">{readableType(element)}</span>
+                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon-sm"
+                        variant="outline"
+                        aria-label={isLayerVisible ? "Ocultar capa" : "Mostrar capa"}
+                        onClick={() => activePage ? toggleLayerVisibility(activePage.id, element.id) : null}
+                      >
+                        {isLayerVisible ? <Eye /> : <EyeOff />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{isLayerVisible ? "Ocultar" : "Mostrar"}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon-sm"
+                        variant={element.locked ? "default" : "outline"}
+                        aria-label={element.locked ? "Desbloquear capa" : "Bloquear capa"}
+                        onClick={() => {
+                          if (!activePage) {
+                            return
+                          }
+
+                          setDocument((currentDocument) =>
+                            toggleElementLocked(currentDocument, activePage.id, element.id),
+                          )
+                        }}
+                      >
+                        <Lock />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{element.locked ? "Desbloquear" : "Bloquear"}</TooltipContent>
+                  </Tooltip>
+                </div>
               )
             })}
           </div>
