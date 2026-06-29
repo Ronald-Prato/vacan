@@ -141,6 +141,15 @@ import {
   type SavedProject,
 } from "@/editor/projects"
 import {
+  PRESENCE_COLORS,
+  createPresenceClientId,
+  createPresenceDraft,
+  listActiveCollaborators,
+  type CollaboratorPresence,
+  type PresenceDraft,
+  type PresenceRecord,
+} from "@/editor/presence"
+import {
   createHistoryState,
   pushHistory,
   redoHistory,
@@ -236,6 +245,16 @@ type SharePersistence = {
   createShare: (draft: ReturnType<typeof createProjectShareDraft>) => Promise<void>
   revokeShare: (shareId: string) => Promise<void>
 }
+type PresencePersistence = {
+  isEnabled: boolean
+  isLoading: boolean
+  clientId: string
+  color: string
+  collaborators: CollaboratorPresence[]
+  selectProject: (projectId: string | null) => void
+  heartbeat: (projectId: string, draft: PresenceDraft) => Promise<void>
+  leave: (projectId: string, clientId: string) => Promise<void>
+}
 type SharedTemplatePersistence = {
   isEnabled: boolean
   isLoading: boolean
@@ -297,6 +316,17 @@ const localSharePersistence: SharePersistence = {
   selectProject: () => undefined,
   createShare: async () => undefined,
   revokeShare: async () => undefined,
+}
+
+const localPresencePersistence: PresencePersistence = {
+  isEnabled: false,
+  isLoading: false,
+  clientId: "local",
+  color: "#8b5cf6",
+  collaborators: [],
+  selectProject: () => undefined,
+  heartbeat: async () => undefined,
+  leave: async () => undefined,
 }
 
 const localSharedTemplatePersistence: SharedTemplatePersistence = {
@@ -763,6 +793,7 @@ function EditorApp({
   assetPersistence,
   commentPersistence,
   sharePersistence,
+  presencePersistence,
   sharedTemplatePersistence,
 }: {
   persistence: ProjectPersistence
@@ -770,6 +801,7 @@ function EditorApp({
   assetPersistence: AssetPersistence
   commentPersistence: CommentPersistence
   sharePersistence: SharePersistence
+  presencePersistence: PresencePersistence
   sharedTemplatePersistence: SharedTemplatePersistence
 }) {
   const [documentHistory, setDocumentHistory] = useState(() =>
@@ -869,6 +901,15 @@ function EditorApp({
   const selectedElementsHaveGroup = selectedElements.some((element) => element.groupId)
   const selectedImageElement = selectedElement?.type === "image" ? normalizeImageElement(selectedElement) : null
   const selectedTextElement = selectedElement?.type === "text" ? normalizeTextElement(selectedElement) : null
+  const presenceSelectionName = hasMultiSelection
+    ? `${selectedElementIds.length} capas`
+    : selectedElement?.name ?? null
+  const presenceClientId = presencePersistence.clientId
+  const presenceColor = presencePersistence.color
+  const isPresenceEnabled = presencePersistence.isEnabled
+  const heartbeatPresence = presencePersistence.heartbeat
+  const selectPresenceProject = presencePersistence.selectProject
+  const remoteCollaborators = presencePersistence.collaborators.filter((collaborator) => !collaborator.isSelf)
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
   const assets = assetPersistence.isEnabled ? assetPersistence.assets : localAssets
   const recentProjects = useMemo(() => listRecentProjects(persistence.projects, 4), [persistence.projects])
@@ -909,6 +950,43 @@ function EditorApp({
   useEffect(() => {
     sharePersistence.selectProject(currentProjectId)
   }, [currentProjectId, sharePersistence])
+
+  useEffect(() => {
+    selectPresenceProject(currentProjectId)
+  }, [currentProjectId, selectPresenceProject])
+
+  useEffect(() => {
+    if (!isPresenceEnabled || !currentProjectId) {
+      return
+    }
+
+    const sendHeartbeat = () => {
+      void heartbeatPresence(
+        currentProjectId,
+        createPresenceDraft({
+          clientId: presenceClientId,
+          displayName: commentAuthor,
+          color: presenceColor,
+          pageId: resolvedActivePageId ?? null,
+          selectedElementName: presenceSelectionName,
+        }),
+      )
+    }
+
+    sendHeartbeat()
+    const intervalId = window.setInterval(sendHeartbeat, 15_000)
+
+    return () => window.clearInterval(intervalId)
+  }, [
+    commentAuthor,
+    currentProjectId,
+    heartbeatPresence,
+    isPresenceEnabled,
+    presenceClientId,
+    presenceColor,
+    presenceSelectionName,
+    resolvedActivePageId,
+  ])
 
   useEffect(() => {
     void refreshComments()
@@ -2734,6 +2812,31 @@ function EditorApp({
               <span>{totalElements} elementos</span>
             </div>
             <div className="flex items-center gap-1 text-slate-300">
+              {remoteCollaborators.length > 0 ? (
+                <div className="mr-2 flex items-center -space-x-2">
+                  {remoteCollaborators.slice(0, 4).map((collaborator) => (
+                    <Tooltip key={collaborator.id}>
+                      <TooltipTrigger asChild>
+                        <span
+                          className="grid size-7 place-items-center rounded-full border border-[#0f1017] text-[10px] font-bold text-white"
+                          style={{ backgroundColor: collaborator.color }}
+                        >
+                          {collaborator.displayName.slice(0, 1).toUpperCase()}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {collaborator.displayName}
+                        {collaborator.selectedElementName ? ` - ${collaborator.selectedElementName}` : ""}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                  {remoteCollaborators.length > 4 ? (
+                    <span className="grid size-7 place-items-center rounded-full border border-[#0f1017] bg-white/10 text-[10px] font-bold text-white">
+                      +{remoteCollaborators.length - 4}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <Button
                 size="icon-sm"
                 variant="ghost"
@@ -3535,6 +3638,7 @@ function ConvexBackedApp() {
   const assetRecords = useQuery(api.assets.list) as AssetRecord[] | undefined
   const [activeVersionProjectId, setActiveVersionProjectId] = useState<string | null>(null)
   const [activeShareProjectId, setActiveShareProjectId] = useState<string | null>(null)
+  const [activePresenceProjectId, setActivePresenceProjectId] = useState<string | null>(null)
   const versionRecords = useQuery(
     api.projectVersions.list,
     activeVersionProjectId ? { projectId: activeVersionProjectId as Id<"projects"> } : "skip",
@@ -3543,6 +3647,10 @@ function ConvexBackedApp() {
     api.projectShares.list,
     activeShareProjectId ? { projectId: activeShareProjectId as Id<"projects"> } : "skip",
   ) as ProjectShareRecord[] | undefined
+  const presenceRecords = useQuery(
+    api.projectPresence.list,
+    activePresenceProjectId ? { projectId: activePresenceProjectId as Id<"projects"> } : "skip",
+  ) as PresenceRecord[] | undefined
   const sharedTemplateRecords = useQuery(api.sharedTemplates.list) as
     | (Omit<SharedTemplateSummary, "id"> & { _id: string })[]
     | undefined
@@ -3554,6 +3662,8 @@ function ConvexBackedApp() {
   const createProjectVersion = useMutation(api.projectVersions.create)
   const createProjectShare = useMutation(api.projectShares.create)
   const revokeProjectShare = useMutation(api.projectShares.revoke)
+  const heartbeatProjectPresence = useMutation(api.projectPresence.heartbeat)
+  const leaveProjectPresence = useMutation(api.projectPresence.leave)
   const createSharedTemplate = useMutation(api.sharedTemplates.create)
 
   const projects = useMemo(
@@ -3588,6 +3698,15 @@ function ConvexBackedApp() {
   const shares = useMemo(
     () => (shareRecords ?? []).map((share) => summarizeProjectShareRecord(share, shareOrigin)),
     [shareOrigin, shareRecords],
+  )
+  const presenceClientId = useMemo(() => createPresenceClientId(createId), [])
+  const presenceColor = useMemo(() => PRESENCE_COLORS[Math.floor(Math.random() * PRESENCE_COLORS.length)], [])
+  const collaborators = useMemo(
+    () =>
+      listActiveCollaborators(presenceRecords ?? [], {
+        currentClientId: presenceClientId,
+      }),
+    [presenceClientId, presenceRecords],
   )
 
   const saveProject = useCallback(
@@ -3743,6 +3862,52 @@ function ConvexBackedApp() {
     [activeShareProjectId, createProjectShare, revokeProjectShare, shareRecords, shares],
   )
 
+  const heartbeatPresence = useCallback(
+    async (projectId: string, draft: PresenceDraft) => {
+      await heartbeatProjectPresence({
+        projectId: projectId as Id<"projects">,
+        clientId: draft.clientId,
+        displayName: draft.displayName,
+        color: draft.color,
+        pageId: draft.pageId,
+        selectedElementName: draft.selectedElementName,
+      })
+    },
+    [heartbeatProjectPresence],
+  )
+
+  const leavePresence = useCallback(
+    async (projectId: string, clientId: string) => {
+      await leaveProjectPresence({
+        projectId: projectId as Id<"projects">,
+        clientId,
+      })
+    },
+    [leaveProjectPresence],
+  )
+
+  const presencePersistence = useMemo<PresencePersistence>(
+    () => ({
+      isEnabled: true,
+      isLoading: activePresenceProjectId !== null && presenceRecords === undefined,
+      clientId: presenceClientId,
+      color: presenceColor,
+      collaborators,
+      selectProject: setActivePresenceProjectId,
+      heartbeat: heartbeatPresence,
+      leave: leavePresence,
+    }),
+    [
+      activePresenceProjectId,
+      collaborators,
+      heartbeatPresence,
+      leavePresence,
+      presenceClientId,
+      presenceColor,
+      presenceRecords,
+    ],
+  )
+
   const publishTemplate = useCallback(
     async (draft: ReturnType<typeof createSharedTemplateDraft>) => {
       await createSharedTemplate({
@@ -3795,6 +3960,7 @@ function ConvexBackedApp() {
       assetPersistence={assetPersistence}
       commentPersistence={commentPersistence}
       sharePersistence={sharePersistence}
+      presencePersistence={presencePersistence}
       sharedTemplatePersistence={sharedTemplatePersistence}
     />
   )
@@ -3812,6 +3978,7 @@ function App() {
       assetPersistence={localAssetPersistence}
       commentPersistence={localCommentPersistence}
       sharePersistence={localSharePersistence}
+      presencePersistence={localPresencePersistence}
       sharedTemplatePersistence={localSharedTemplatePersistence}
     />
   )

@@ -55,6 +55,9 @@ surface grows.
   collaborative metadata out of project canvas documents.
 - `src/editor/sharing.ts`: project share permissions, token drafts, URLs, and
   share summaries. Keep access-link metadata out of project canvas documents.
+- `src/editor/presence.ts`: collaborator presence identity, heartbeat drafts,
+  active TTL filtering, and display summaries. Keep operational presence state
+  out of project canvas documents.
 - `src/App.tsx`: UI composition and injected adapters. Avoid adding business
   logic here if it can be tested in `src/editor`.
 - `convex/*.ts`: backend storage and query/mutation/action boundaries.
@@ -74,6 +77,8 @@ surface grows.
 - All public Convex functions need validators.
 - Keep high-churn collaboration or presence state separate from stable project
   documents when collaboration is introduced.
+- Presence should use a dedicated table indexed by project/client for heartbeat
+  upserts and project/update time for bounded active collaborator lists.
 - Comments and collaboration metadata should live in dedicated tables indexed by
   project, with bounded reads.
 
@@ -113,3 +118,5 @@ surface grows.
   summaries.
 - Sharing helpers: access validation, token creation, URL creation, active state,
   and record summaries.
+- Presence helpers: client id creation, color normalization, heartbeat draft
+  normalization, active TTL filtering, and self/remote collaborator labels.

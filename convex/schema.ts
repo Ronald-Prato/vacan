@@ -24,6 +24,17 @@ export default defineSchema({
   })
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
     .index("by_token", ["token"]),
+  projectPresence: defineTable({
+    projectId: v.id("projects"),
+    clientId: v.string(),
+    displayName: v.string(),
+    color: v.string(),
+    pageId: v.union(v.string(), v.null()),
+    selectedElementName: v.union(v.string(), v.null()),
+    updatedAt: v.number(),
+  })
+    .index("by_projectId_and_updatedAt", ["projectId", "updatedAt"])
+    .index("by_projectId_and_clientId", ["projectId", "clientId"]),
   assets: defineTable({
     name: v.string(),
     storageId: v.id("_storage"),
