@@ -112,6 +112,13 @@ import {
   type DesignFormatId,
   type DesignTemplateId,
 } from "@/editor/templates"
+import {
+  EXPORT_FORMATS,
+  buildExportFileName,
+  createExportOptions,
+  getExportMimeType,
+  type ExportFormatId,
+} from "@/editor/export"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -547,6 +554,7 @@ function EditorApp({
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
   const [panelSearchQuery, setPanelSearchQuery] = useState("")
+  const [exportOptions, setExportOptions] = useState(() => createExportOptions())
   const [animatingPageId, setAnimatingPageId] = useState<string | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [editingText, setEditingText] = useState("")
@@ -997,21 +1005,37 @@ function EditorApp({
     setDocument((currentDocument) => duplicateElementBehind(currentDocument, pageId, elementId, createId))
   }
 
-  const exportActivePage = () => {
+  const exportActivePage = async () => {
     if (!resolvedActivePageId) {
       return
     }
 
     const dataUrl = stageRefs.current[resolvedActivePageId]?.toDataURL({
       pixelRatio: 1 / canvasPreviewScale,
+      mimeType: getExportMimeType(exportOptions.format),
+      quality: exportOptions.quality,
     })
 
     if (!dataUrl) {
       return
     }
 
+    if (exportOptions.format === "pdf") {
+      const { jsPDF } = await import("jspdf")
+      const pdf = new jsPDF({
+        orientation: documentSize.width >= documentSize.height ? "landscape" : "portrait",
+        unit: "px",
+        format: [documentSize.width, documentSize.height],
+        compress: true,
+      })
+
+      pdf.addImage(dataUrl, "PNG", 0, 0, documentSize.width, documentSize.height)
+      pdf.save(buildExportFileName(document.name, "pdf"))
+      return
+    }
+
     const link = globalThis.document.createElement("a")
-    link.download = `${document.name.trim().toLowerCase().replace(/\s+/g, "-") || "vacan"}.png`
+    link.download = buildExportFileName(document.name, exportOptions.format)
     link.href = dataUrl
     link.click()
   }
@@ -1364,6 +1388,47 @@ function EditorApp({
       return (
         <>
           {renderPanelSearch("Busca herramientas")}
+          <div className="space-y-3 rounded-md border border-white/10 bg-[#20222b] p-3">
+            <div className="space-y-2">
+              <Label htmlFor="export-format" className="text-slate-300">Formato</Label>
+              <select
+                id="export-format"
+                value={exportOptions.format}
+                onChange={(event) =>
+                  setExportOptions((currentOptions) =>
+                    createExportOptions({
+                      ...currentOptions,
+                      format: event.target.value as ExportFormatId,
+                    }),
+                  )
+                }
+                className="h-8 w-full rounded-lg border border-white/10 bg-[#12141b] px-2 text-sm text-slate-100"
+              >
+                {EXPORT_FORMATS.map((format) => (
+                  <option key={format.id} value={format.id}>
+                    {format.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {exportOptions.format === "jpg" ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-slate-300">Calidad</Label>
+                  <span className="text-xs text-slate-400">{Math.round(exportOptions.quality * 100)}%</span>
+                </div>
+                <Slider
+                  value={[exportOptions.quality]}
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  onValueChange={([quality]) =>
+                    setExportOptions((currentOptions) => createExportOptions({ ...currentOptions, quality }))
+                  }
+                />
+              </div>
+            ) : null}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {filteredToolActions.map((action) => (
               <ToolAction
