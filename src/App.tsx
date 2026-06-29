@@ -93,6 +93,7 @@ import {
   replaceHistoryPresent,
   undoHistory,
 } from "@/editor/history"
+import { filterSearchItems } from "@/editor/search"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
 import {
   DESIGN_FORMATS,
@@ -424,13 +425,23 @@ function EditableElement({
   )
 }
 
-function PanelSearch({ placeholder }: { placeholder: string }) {
+function PanelSearch({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder: string
+  value: string
+  onChange: (value: string) => void
+}) {
   return (
     <label className="flex h-12 items-center gap-3 rounded-md border border-[#6d28d9]/70 bg-[#12141b] px-3 text-slate-300 focus-within:ring-2 focus-within:ring-[#7c3aed]/60">
       <Search className="size-5 shrink-0" />
       <input
         className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-slate-500"
         placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
       />
     </label>
   )
@@ -484,6 +495,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const [assets, setAssets] = useState<Asset[]>([])
   const [activePageId, setActivePageId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ToolId>("templates")
+  const [panelSearchQuery, setPanelSearchQuery] = useState("")
   const [animatingPageId, setAnimatingPageId] = useState<string | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [editingText, setEditingText] = useState("")
@@ -540,6 +552,10 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
       setEditingText(selectedElement.text)
     }
   }, [selectedElement])
+
+  useEffect(() => {
+    setPanelSearchQuery("")
+  }, [activeTool])
 
   useEffect(() => {
     const viewport = canvasViewportRef.current
@@ -1035,13 +1051,68 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     setDocument((currentDocument) => resizeDocumentToFormat(currentDocument, formatId))
   }
 
+  const renderPanelSearch = (placeholder: string) => (
+    <PanelSearch
+      placeholder={placeholder}
+      value={panelSearchQuery}
+      onChange={setPanelSearchQuery}
+    />
+  )
+
   const renderToolPanel = () => {
+    const filteredShapes = filterSearchItems(SHAPE_OPTIONS, panelSearchQuery, ["label", "type"])
+    const textPresets = [
+      { label: "Titulo", size: "text-4xl" },
+      { label: "Subtitulo", size: "text-2xl" },
+      { label: "Agregar algo de texto", size: "text-base" },
+    ]
+    const filteredTextPresets = filterSearchItems(textPresets, panelSearchQuery, ["label"])
+    const filteredAssets = filterSearchItems(assets, panelSearchQuery, ["name"])
+    const filteredBackgroundSwatches = filterSearchItems(
+      backgroundSwatches.map((color) => ({ color })),
+      panelSearchQuery,
+      ["color"],
+    ).map((swatch) => swatch.color)
+    const filteredProjects = filterSearchItems(persistence.projects, panelSearchQuery, [
+      "name",
+      (project) => `${project.pageCount} paginas ${project.elementCount} elementos`,
+    ])
+    const filteredDesignFormats = filterSearchItems(DESIGN_FORMATS, panelSearchQuery, [
+      "name",
+      "category",
+      (format) => `${format.size.width} ${format.size.height}`,
+    ])
+    const filteredDesignTemplates = filterSearchItems(DESIGN_TEMPLATES, panelSearchQuery, [
+      "name",
+      "description",
+      "formatId",
+    ])
+    const toolActions = [
+      { icon: MousePointer2, label: "Seleccionar", onClick: () => setSelection(null), disabled: false },
+      { icon: Undo2, label: "Deshacer", onClick: undoDocument, disabled: !canUndo },
+      { icon: Redo2, label: "Rehacer", onClick: redoDocument, disabled: !canRedo },
+      { icon: Layers3, label: "Duplicar", onClick: duplicateSelected, disabled: !selectedElement },
+      { icon: BringToFront, label: "Al frente", onClick: moveSelectedToFront, disabled: !selectedElement },
+      { icon: Layers3, label: "Adelante", onClick: moveSelectedForward, disabled: !selectedElement },
+      { icon: Layers3, label: "Atras", onClick: moveSelectedBackward, disabled: !selectedElement },
+      { icon: Layers3, label: "Al fondo", onClick: moveSelectedToBack, disabled: !selectedElement },
+      {
+        icon: Lock,
+        label: selectedElement?.locked ? "Desbloquear" : "Bloquear",
+        onClick: toggleSelectedLocked,
+        disabled: !selectedElement,
+      },
+      { icon: Trash2, label: "Eliminar", onClick: removeSelected, disabled: !selectedElement },
+      { icon: Download, label: "Exportar", onClick: exportActivePage, disabled: totalElements === 0 },
+    ]
+    const filteredToolActions = filterSearchItems(toolActions, panelSearchQuery, ["label"])
+
     if (activeTool === "elements") {
       return (
         <>
-          <PanelSearch placeholder="Busca elementos" />
+          {renderPanelSearch("Busca elementos")}
           <div className="grid grid-cols-3 gap-2">
-            {SHAPE_OPTIONS.map((shape) => {
+            {filteredShapes.map((shape) => {
               const Icon = shape.type === "circle" ? Circle : shape.type === "triangle" ? Triangle : Square
 
               return (
@@ -1069,7 +1140,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     if (activeTool === "text") {
       return (
         <>
-          <PanelSearch placeholder="Busca fuentes y combinaciones" />
+          {renderPanelSearch("Busca fuentes y combinaciones")}
           <Button className="h-12 w-full bg-[#7c3aed] text-base font-bold hover:bg-[#6d28d9]" onClick={addText}>
             <Type data-icon="inline-start" />
             Agregar caja de texto
@@ -1078,9 +1149,9 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
             <WandSparkles data-icon="inline-start" />
             Texto Magico
           </Button>
-          <TextPreset label="Titulo" size="text-4xl" onClick={addText} />
-          <TextPreset label="Subtitulo" size="text-2xl" onClick={addText} />
-          <TextPreset label="Agregar algo de texto" size="text-base" onClick={addText} />
+          {filteredTextPresets.map((preset) => (
+            <TextPreset key={preset.label} label={preset.label} size={preset.size} onClick={addText} />
+          ))}
         </>
       )
     }
@@ -1088,7 +1159,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     if (activeTool === "uploads" || activeTool === "photos") {
       return (
         <>
-          <PanelSearch placeholder={activeTool === "photos" ? "Busca fotos" : "Busca archivos"} />
+          {renderPanelSearch(activeTool === "photos" ? "Busca fotos" : "Busca archivos")}
           <button
             type="button"
             className="flex h-24 w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-[#7c3aed] bg-[#201b2c] text-slate-100 transition hover:bg-[#2a2240]"
@@ -1103,7 +1174,12 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                 Las imagenes que subas apareceran aqui.
               </div>
             ) : null}
-            {assets.map((asset) => (
+            {assets.length > 0 && filteredAssets.length === 0 ? (
+              <div className="col-span-2 rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                No hay archivos para esa busqueda.
+              </div>
+            ) : null}
+            {filteredAssets.map((asset) => (
               <button
                 key={asset.id}
                 type="button"
@@ -1127,9 +1203,9 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     if (activeTool === "background") {
       return (
         <>
-          <PanelSearch placeholder="Busca fondos" />
+          {renderPanelSearch("Busca fondos")}
           <div className="grid grid-cols-4 gap-2">
-            {backgroundSwatches.map((color) => (
+            {filteredBackgroundSwatches.map((color) => (
               <button
                 key={color}
                 type="button"
@@ -1147,7 +1223,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     if (activeTool === "projects") {
       return (
         <>
-          <PanelSearch placeholder="Busca proyectos" />
+          {renderPanelSearch("Busca proyectos")}
           <div className="grid grid-cols-2 gap-2">
             <Button
               className="border-white/15 bg-transparent text-slate-100 hover:bg-white/10"
@@ -1187,7 +1263,12 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
                 Guarda tu primer diseno para verlo aqui.
               </div>
             ) : null}
-            {persistence.projects.map((project) => (
+            {persistence.projects.length > 0 && filteredProjects.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                No hay proyectos para esa busqueda.
+              </div>
+            ) : null}
+            {filteredProjects.map((project) => (
               <button
                 key={project.id}
                 type="button"
@@ -1217,24 +1298,17 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
     if (activeTool === "tools") {
       return (
         <>
-          <PanelSearch placeholder="Busca herramientas" />
+          {renderPanelSearch("Busca herramientas")}
           <div className="grid grid-cols-2 gap-2">
-            <ToolAction icon={MousePointer2} label="Seleccionar" onClick={() => setSelection(null)} />
-            <ToolAction icon={Undo2} label="Deshacer" onClick={undoDocument} disabled={!canUndo} />
-            <ToolAction icon={Redo2} label="Rehacer" onClick={redoDocument} disabled={!canRedo} />
-            <ToolAction icon={Layers3} label="Duplicar" onClick={duplicateSelected} disabled={!selectedElement} />
-            <ToolAction icon={BringToFront} label="Al frente" onClick={moveSelectedToFront} disabled={!selectedElement} />
-            <ToolAction icon={Layers3} label="Adelante" onClick={moveSelectedForward} disabled={!selectedElement} />
-            <ToolAction icon={Layers3} label="Atras" onClick={moveSelectedBackward} disabled={!selectedElement} />
-            <ToolAction icon={Layers3} label="Al fondo" onClick={moveSelectedToBack} disabled={!selectedElement} />
-            <ToolAction
-              icon={Lock}
-              label={selectedElement?.locked ? "Desbloquear" : "Bloquear"}
-              onClick={toggleSelectedLocked}
-              disabled={!selectedElement}
-            />
-            <ToolAction icon={Trash2} label="Eliminar" onClick={removeSelected} disabled={!selectedElement} />
-            <ToolAction icon={Download} label="Exportar" onClick={exportActivePage} disabled={totalElements === 0} />
+            {filteredToolActions.map((action) => (
+              <ToolAction
+                key={action.label}
+                icon={action.icon}
+                label={action.label}
+                onClick={action.onClick}
+                disabled={action.disabled}
+              />
+            ))}
           </div>
         </>
       )
@@ -1242,11 +1316,11 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
 
     return (
       <>
-        <PanelSearch placeholder="Busca plantillas" />
+        {renderPanelSearch("Busca plantillas")}
         <section className="space-y-2">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Tamanos</h3>
           <div className="grid grid-cols-2 gap-2">
-            {DESIGN_FORMATS.map((format) => (
+            {filteredDesignFormats.map((format) => (
               <button
                 key={format.id}
                 type="button"
@@ -1264,7 +1338,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         <section className="space-y-2">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Redimensionar</h3>
           <div className="grid grid-cols-2 gap-2">
-            {DESIGN_FORMATS.map((format) => (
+            {filteredDesignFormats.map((format) => (
               <button
                 key={format.id}
                 type="button"
@@ -1279,7 +1353,12 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         <section className="space-y-3">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Plantillas</h3>
           <div className="grid gap-3">
-            {DESIGN_TEMPLATES.map((template) => (
+            {filteredDesignTemplates.length === 0 ? (
+              <div className="rounded-md border border-white/10 bg-[#20222b] p-4 text-sm text-slate-400">
+                No hay plantillas para esa busqueda.
+              </div>
+            ) : null}
+            {filteredDesignTemplates.map((template) => (
               <button
                 key={template.id}
                 type="button"
