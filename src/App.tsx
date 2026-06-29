@@ -65,6 +65,7 @@ import {
   addElementToPage,
   createImageElement,
   createInitialDocument,
+  createDefaultImageFilters,
   createShapeElement,
   createTextElement,
   deleteElement,
@@ -76,8 +77,10 @@ import {
   moveElementForward,
   moveElementToBack,
   moveElementToFront,
+  normalizeImageElement,
   normalizeTextElement,
   toggleElementLocked,
+  updateImageFilters,
   updateTextStyle,
   updateElement,
   type Asset,
@@ -308,14 +311,48 @@ function EditableImage({
 }: {
   element: Extract<CanvasElement, { type: "image" }>
 }) {
+  const imageRef = useRef<Konva.Image>(null)
   const image = useCanvasImage(element.src)
+  const imageElement = normalizeImageElement(element)
+  const { filters } = imageElement
+  const hasBlur = filters.blur > 0
+  const konvaFilters = useMemo(
+    () => [
+      Konva.Filters.Brighten,
+      Konva.Filters.Contrast,
+      Konva.Filters.HSL,
+      ...(hasBlur ? [Konva.Filters.Blur] : []),
+    ],
+    [hasBlur],
+  )
+
+  useEffect(() => {
+    const node = imageRef.current
+
+    if (!node || !image) {
+      return
+    }
+
+    node.cache()
+    node.getLayer()?.batchDraw()
+
+    return () => {
+      node.clearCache()
+    }
+  }, [image, filters.brightness, filters.contrast, filters.saturation, filters.blur])
 
   return (
     <KonvaImage
+      ref={imageRef}
       image={image ?? undefined}
       width={element.width}
       height={element.height}
       opacity={element.opacity}
+      filters={konvaFilters}
+      brightness={filters.brightness}
+      contrast={filters.contrast}
+      saturation={filters.saturation}
+      blurRadius={filters.blur}
     />
   )
 }
@@ -654,6 +691,7 @@ function EditorApp({
   const resolvedActivePageId = selection?.pageId ?? activePageId ?? document.pages[0]?.id
   const activePage = document.pages.find((page) => page.id === resolvedActivePageId) ?? document.pages[0]
   const selectedElement = useMemo(() => findElement(document, selection), [document, selection])
+  const selectedImageElement = selectedElement?.type === "image" ? normalizeImageElement(selectedElement) : null
   const selectedTextElement = selectedElement?.type === "text" ? normalizeTextElement(selectedElement) : null
   const totalElements = document.pages.reduce((count, page) => count + page.elements.length, 0)
   const assets = assetPersistence.isEnabled ? assetPersistence.assets : localAssets
@@ -990,6 +1028,16 @@ function EditorApp({
 
     setDocument((currentDocument) =>
       updateTextStyle(currentDocument, selection.pageId, selection.elementId, changes),
+    )
+  }
+
+  const updateSelectedImageFilters = (changes: Parameters<typeof updateImageFilters>[3]) => {
+    if (!selection?.elementId) {
+      return
+    }
+
+    setDocument((currentDocument) =>
+      updateImageFilters(currentDocument, selection.pageId, selection.elementId, changes),
     )
   }
 
@@ -2223,6 +2271,82 @@ function EditorApp({
                   </div>
 	                </>
 	              ) : null}
+
+              {selectedImageElement ? (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Brillo</Label>
+                      <span className="text-xs text-slate-400">
+                        {Math.round(selectedImageElement.filters.brightness * 100)}%
+                      </span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.filters.brightness]}
+                      min={-1}
+                      max={1}
+                      step={0.05}
+                      onValueChange={([brightness]) => updateSelectedImageFilters({ brightness })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Contraste</Label>
+                      <span className="text-xs text-slate-400">
+                        {Math.round(selectedImageElement.filters.contrast * 100)}%
+                      </span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.filters.contrast]}
+                      min={-1}
+                      max={1}
+                      step={0.05}
+                      onValueChange={([contrast]) => updateSelectedImageFilters({ contrast })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Saturacion</Label>
+                      <span className="text-xs text-slate-400">
+                        {Math.round(selectedImageElement.filters.saturation * 100)}%
+                      </span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.filters.saturation]}
+                      min={-1}
+                      max={1}
+                      step={0.05}
+                      onValueChange={([saturation]) => updateSelectedImageFilters({ saturation })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Desenfoque</Label>
+                      <span className="text-xs text-slate-400">{Math.round(selectedImageElement.filters.blur)}px</span>
+                    </div>
+                    <Slider
+                      value={[selectedImageElement.filters.blur]}
+                      min={0}
+                      max={80}
+                      step={1}
+                      onValueChange={([blur]) => updateSelectedImageFilters({ blur })}
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => updateSelectedImageFilters(createDefaultImageFilters())}
+                  >
+                    <WandSparkles data-icon="inline-start" />
+                    Restablecer filtros
+                  </Button>
+                </>
+              ) : null}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">

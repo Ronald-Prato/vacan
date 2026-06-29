@@ -47,6 +47,13 @@ export type Asset = {
   src: string
 }
 
+export type ImageFilters = {
+  brightness: number
+  contrast: number
+  saturation: number
+  blur: number
+}
+
 export type BaseElement = {
   id: string
   name: string
@@ -63,6 +70,10 @@ export type ImageElement = BaseElement & {
   type: "image"
   assetId: string
   src: string
+  filters: ImageFilters
+}
+type ImageElementWithOptionalFilters = Omit<ImageElement, "filters"> & {
+  filters?: Partial<ImageFilters>
 }
 
 export type TextElement = BaseElement & {
@@ -168,6 +179,7 @@ export function createImageElement({
     rotation: 0,
     opacity: 1,
     locked: false,
+    filters: createDefaultImageFilters(),
   }
 }
 
@@ -242,6 +254,25 @@ export function normalizeTextElement(element: TextElementWithOptionalStyle): Tex
     textDecoration: element.textDecoration ?? "none",
     lineHeight: element.lineHeight ?? 1.08,
     letterSpacing: element.letterSpacing ?? 0,
+  }
+}
+
+export function createDefaultImageFilters(): ImageFilters {
+  return {
+    brightness: 0,
+    contrast: 0,
+    saturation: 0,
+    blur: 0,
+  }
+}
+
+export function normalizeImageElement(element: ImageElementWithOptionalFilters): ImageElement {
+  return {
+    ...element,
+    filters: {
+      ...createDefaultImageFilters(),
+      ...element.filters,
+    },
   }
 }
 
@@ -470,6 +501,45 @@ export function updateTextStyle(
         lineHeight: changes.lineHeight === undefined ? textElement.lineHeight : clamp(changes.lineHeight, 0.7, 2.5),
         letterSpacing:
           changes.letterSpacing === undefined ? textElement.letterSpacing : clamp(changes.letterSpacing, -50, 200),
+      }
+    }),
+  }))
+
+  return didUpdate ? nextDocument : document
+}
+
+export function updateImageFilters(
+  document: EditorDocument,
+  pageId: string,
+  elementId: string,
+  changes: Partial<ImageFilters>,
+): EditorDocument {
+  let didUpdate = false
+  const nextDocument = updatePage(document, pageId, (page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      if (element.id !== elementId || element.type !== "image") {
+        return element
+      }
+
+      didUpdate = true
+      const imageElement = normalizeImageElement(element)
+
+      return {
+        ...imageElement,
+        filters: {
+          brightness:
+            changes.brightness === undefined
+              ? imageElement.filters.brightness
+              : clamp(changes.brightness, -1, 1),
+          contrast:
+            changes.contrast === undefined ? imageElement.filters.contrast : clamp(changes.contrast, -1, 1),
+          saturation:
+            changes.saturation === undefined
+              ? imageElement.filters.saturation
+              : clamp(changes.saturation, -1, 1),
+          blur: changes.blur === undefined ? imageElement.filters.blur : clamp(changes.blur, 0, 80),
+        },
       }
     }),
   }))

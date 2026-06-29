@@ -16,9 +16,11 @@ import {
   moveElementForward,
   moveElementToBack,
   moveElementToFront,
+  normalizeImageElement,
   normalizeTextElement,
   pageElementCount,
   toggleElementLocked,
+  updateImageFilters,
   updateTextStyle,
   updateElement,
   type Asset,
@@ -73,6 +75,12 @@ describe("editor document model", () => {
     expect(element.height).toBeLessThanOrEqual(CANVAS_SIZE.height * 0.68)
     expect(element.x).toBeGreaterThan(0)
     expect(element.y).toBeGreaterThan(0)
+    expect(element.filters).toEqual({
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      blur: 0,
+    })
   })
 
   it("adds and updates elements inside a page", () => {
@@ -262,6 +270,66 @@ describe("editor document model", () => {
     const withShape = addElementToPage(document, pageId, shape)
 
     const updated = updateTextStyle(withShape, pageId, shape.id, { fontWeight: "bold" })
+
+    expect(updated).toEqual(withShape)
+  })
+
+  it("updates image filters with bounded values", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const image = createImageElement({
+      asset,
+      imageSize: { width: 1000, height: 600 },
+      createId: nextId,
+    })
+    const withImage = addElementToPage(document, pageId, image)
+
+    const filtered = updateImageFilters(withImage, pageId, image.id, {
+      brightness: 2,
+      contrast: -2,
+      saturation: 1.5,
+      blur: 200,
+    })
+
+    expect(findElement(filtered, { pageId, elementId: image.id })).toMatchObject({
+      filters: {
+        brightness: 1,
+        contrast: -1,
+        saturation: 1,
+        blur: 80,
+      },
+    })
+  })
+
+  it("normalizes older image elements that are missing filter fields", () => {
+    const legacyImage = {
+      ...createImageElement({
+        asset,
+        imageSize: { width: 1000, height: 600 },
+        createId: () => "image-1",
+      }),
+      filters: undefined,
+    }
+
+    expect(normalizeImageElement(legacyImage)).toMatchObject({
+      filters: {
+        brightness: 0,
+        contrast: 0,
+        saturation: 0,
+        blur: 0,
+      },
+    })
+  })
+
+  it("ignores image filter updates for non-image elements", () => {
+    const nextId = idSequence()
+    const document = createInitialDocument(nextId)
+    const pageId = document.pages[0].id
+    const shape = createShapeElement("rect", nextId)
+    const withShape = addElementToPage(document, pageId, shape)
+
+    const updated = updateImageFilters(withShape, pageId, shape.id, { brightness: 1 })
 
     expect(updated).toEqual(withShape)
   })
