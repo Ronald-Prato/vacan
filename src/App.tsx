@@ -33,6 +33,8 @@ import {
   Trash2,
   Triangle,
   Type,
+  Redo2,
+  Undo2,
   WandSparkles,
   type LucideIcon,
 } from "lucide-react"
@@ -84,6 +86,13 @@ import {
   type ProjectRecord,
   type SavedProject,
 } from "@/editor/projects"
+import {
+  createHistoryState,
+  pushHistory,
+  redoHistory,
+  replaceHistoryPresent,
+  undoHistory,
+} from "@/editor/history"
 import { snapElementPosition, type SnapGuide } from "@/editor/snapping"
 import {
   DESIGN_FORMATS,
@@ -117,6 +126,7 @@ type ProjectPersistence = {
   saveProject: (projectId: string | null, document: EditorDocument) => Promise<string | null>
   loadProject: (projectId: string) => Promise<EditorDocument | null>
 }
+type DocumentUpdater = EditorDocument | ((currentDocument: EditorDocument) => EditorDocument)
 
 const colorSwatches = ["#111827", "#ffffff", "#ef4444", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6"]
 const backgroundSwatches = ["#ffffff", "#f8fafc", "#fef3c7", "#d9f99d", "#ccfbf1", "#dbeafe", "#ede9fe", "#111827"]
@@ -463,7 +473,9 @@ function ToolAction({
 }
 
 function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
-  const [document, setDocument] = useState<EditorDocument>(() => createInitialDocument(createId))
+  const [documentHistory, setDocumentHistory] = useState(() =>
+    createHistoryState<EditorDocument>(createInitialDocument(createId)),
+  )
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>(
     persistence.isEnabled ? "saved" : "local",
@@ -480,8 +492,34 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const canvasViewportRef = useRef<HTMLDivElement>(null)
   const stageRefs = useRef<StageMap>({})
   const altDuplicatedDragRef = useRef<string | null>(null)
+  const document = documentHistory.present
   const lastSavedFingerprintRef = useRef(createDocumentFingerprint(document))
   const [canvasPreviewScale, setCanvasPreviewScale] = useState(MAX_CANVAS_PREVIEW_SIZE / CANVAS_SIZE.width)
+  const canUndo = documentHistory.past.length > 0
+  const canRedo = documentHistory.future.length > 0
+
+  const setDocument = useCallback((updater: DocumentUpdater) => {
+    setDocumentHistory((currentHistory) => {
+      const nextDocument =
+        typeof updater === "function" ? updater(currentHistory.present) : updater
+
+      return pushHistory(currentHistory, nextDocument, {
+        fingerprint: createDocumentFingerprint,
+      })
+    })
+  }, [])
+
+  const replaceDocumentHistory = useCallback((nextDocument: EditorDocument) => {
+    setDocumentHistory((currentHistory) => replaceHistoryPresent(currentHistory, nextDocument))
+  }, [])
+
+  const undoDocument = useCallback(() => {
+    setDocumentHistory((currentHistory) => undoHistory(currentHistory))
+  }, [])
+
+  const redoDocument = useCallback(() => {
+    setDocumentHistory((currentHistory) => redoHistory(currentHistory))
+  }, [])
 
   const resolvedActivePageId = selection?.pageId ?? activePageId ?? document.pages[0]?.id
   const activePage = document.pages.find((page) => page.id === resolvedActivePageId) ?? document.pages[0]
@@ -629,7 +667,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
           throw new Error("El proyecto no tiene un canvas valido")
         }
 
-        setDocument(loadedDocument)
+        replaceDocumentHistory(loadedDocument)
         setCurrentProjectId(projectId)
         setActivePageId(loadedDocument.pages[0]?.id ?? null)
         setSelection(null)
@@ -640,20 +678,20 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         setAutosaveStatus("error")
       }
     },
-    [persistence],
+    [persistence, replaceDocumentHistory],
   )
 
   const startNewProject = useCallback(() => {
     const nextDocument = createInitialDocument(createId)
 
-    setDocument(nextDocument)
+    replaceDocumentHistory(nextDocument)
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
     lastSavedFingerprintRef.current = createDocumentFingerprint(nextDocument)
     setAutosaveError("")
     setAutosaveStatus(persistence.isEnabled ? "saved" : "local")
-  }, [persistence.isEnabled])
+  }, [persistence.isEnabled, replaceDocumentHistory])
 
   const setDocumentName = (name: string) => {
     setDocument((currentDocument) => ({ ...currentDocument, name }))
@@ -921,6 +959,24 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
         return
       }
 
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault()
+
+        if (event.shiftKey) {
+          redoDocument()
+        } else {
+          undoDocument()
+        }
+
+        return
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
+        event.preventDefault()
+        redoDocument()
+        return
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
         event.preventDefault()
         duplicateSelected()
@@ -956,7 +1012,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const applyTemplate = (templateId: DesignTemplateId) => {
     const nextDocument = createDocumentFromTemplate(templateId, createId)
 
-    setDocument(nextDocument)
+    replaceDocumentHistory(nextDocument)
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
@@ -966,7 +1022,7 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
   const createBlankFormat = (formatId: DesignFormatId) => {
     const nextDocument = createBlankDocumentForFormat(formatId, createId)
 
-    setDocument(nextDocument)
+    replaceDocumentHistory(nextDocument)
     setCurrentProjectId(null)
     setActivePageId(nextDocument.pages[0]?.id ?? null)
     setSelection(null)
@@ -1164,6 +1220,8 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
           <PanelSearch placeholder="Busca herramientas" />
           <div className="grid grid-cols-2 gap-2">
             <ToolAction icon={MousePointer2} label="Seleccionar" onClick={() => setSelection(null)} />
+            <ToolAction icon={Undo2} label="Deshacer" onClick={undoDocument} disabled={!canUndo} />
+            <ToolAction icon={Redo2} label="Rehacer" onClick={redoDocument} disabled={!canRedo} />
             <ToolAction icon={Layers3} label="Duplicar" onClick={duplicateSelected} disabled={!selectedElement} />
             <ToolAction icon={BringToFront} label="Al frente" onClick={moveSelectedToFront} disabled={!selectedElement} />
             <ToolAction icon={Layers3} label="Adelante" onClick={moveSelectedForward} disabled={!selectedElement} />
@@ -1368,6 +1426,26 @@ function EditorApp({ persistence }: { persistence: ProjectPersistence }) {
               <span>{totalElements} elementos</span>
             </div>
             <div className="flex items-center gap-1 text-slate-300">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-slate-300 hover:bg-white/10"
+                aria-label="Deshacer"
+                onClick={undoDocument}
+                disabled={!canUndo}
+              >
+                <Undo2 />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-slate-300 hover:bg-white/10"
+                aria-label="Rehacer"
+                onClick={redoDocument}
+                disabled={!canRedo}
+              >
+                <Redo2 />
+              </Button>
               <Button
                 size="icon-sm"
                 variant="ghost"

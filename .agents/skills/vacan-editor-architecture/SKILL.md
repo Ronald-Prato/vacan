@@ -37,6 +37,8 @@ surface grows.
 - `src/editor/snapping.ts`: guides, alignment, and drag math.
 - `src/editor/templates.ts`: design formats, template definitions, document
   creation from templates, and resize math.
+- `src/editor/history.ts`: undo/redo state transitions. Keep history generic
+  and framework-light, then wire it from React.
 - `src/App.tsx`: UI composition and injected adapters. Avoid adding business
   logic here if it can be tested in `src/editor`.
 - `convex/*.ts`: backend storage and query/mutation/action boundaries.
@@ -65,4 +67,6 @@ surface grows.
 - Layout helpers: snapping, resize, positioning, template placement.
 - Project helpers: save payloads, validation, summary counts, autosave change
   detection.
+- History helpers: push, undo, redo, replace-current, future invalidation, and
+  bounded past length.
 - Export helpers: file type, page selection, scaling, transparency options.
